@@ -43,7 +43,7 @@ Main capabilities:
      - Price
      - Airline
      - Flight Duration
-   - Source fallback order: Google Flights → Vietnam Airlines → AirAsia
+   - Queries all sources (Google Flights, Vietnam Airlines, AirAsia) and returns the best (lowest) price among successful results
 
 4. **Price comparison**
    - Current price is saved to `lastCheckedPrice`.

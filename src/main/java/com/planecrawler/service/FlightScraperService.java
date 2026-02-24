@@ -12,6 +12,9 @@ import org.springframework.retry.annotation.Backoff;
 import org.springframework.retry.annotation.Retryable;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
@@ -69,29 +72,44 @@ public class FlightScraperService {
 
                     // Mask the webdriver flag to reduce bot-detection
                     page.addInitScript("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})");
+                    List<FlightInfo> results = new ArrayList<>();
 
                     try {
-                        return scrapeFromGoogleFlights(page, origin, destination);
+                        results.add(scrapeFromGoogleFlights(page, origin, destination));
                     } catch (Exception googleError) {
                         log.warn("Google Flights scrape failed for {}->{}: {}", origin, destination, googleError.getMessage());
                     }
 
                     try {
-                        return scrapeFromVietnamAirlines(page, origin, destination);
+                        results.add(scrapeFromVietnamAirlines(page, origin, destination));
                     } catch (Exception vaError) {
                         log.warn("Vietnam Airlines scrape failed for {}->{}: {}", origin, destination, vaError.getMessage());
                     }
 
                     try {
-                        return scrapeFromAirAsia(page, origin, destination);
+                        results.add(scrapeFromAirAsia(page, origin, destination));
                     } catch (Exception airAsiaError) {
                         log.warn("AirAsia scrape failed for {}->{}: {}", origin, destination, airAsiaError.getMessage());
                     }
 
-                    throw new IllegalStateException("All flight sources failed for route " + origin + "->" + destination);
+                    if (results.isEmpty()) {
+                        throw new IllegalStateException("All flight sources failed for route " + origin + "->" + destination);
+                    }
+
+                    FlightInfo best = selectBestPrice(results);
+                    log.info("Best price selected for {}->{}: {} ({}, {})",
+                            origin, destination, best.getPrice(), best.getAirline(), best.getDuration());
+                    return best;
                 }
             }
         }
+    }
+
+    static FlightInfo selectBestPrice(List<FlightInfo> flights) {
+        return flights.stream()
+                .filter(flight -> flight != null && flight.getPrice() != null)
+                .min(Comparator.comparing(FlightInfo::getPrice))
+                .orElseThrow(() -> new IllegalArgumentException("No flight results available"));
     }
 
     private FlightInfo scrapeFromGoogleFlights(Page page, String origin, String destination) throws Exception {
