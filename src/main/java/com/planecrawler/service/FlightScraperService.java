@@ -2,7 +2,9 @@ package com.planecrawler.service;
 
 import com.microsoft.playwright.*;
 import com.planecrawler.model.FlightInfo;
+import com.planecrawler.scraper.AirAsiaPage;
 import com.planecrawler.scraper.GoogleFlightsPage;
+import com.planecrawler.scraper.VietnamAirlinesPage;
 import com.planecrawler.scraper.UserAgentRotator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -68,20 +70,56 @@ public class FlightScraperService {
                     // Mask the webdriver flag to reduce bot-detection
                     page.addInitScript("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})");
 
-                    GoogleFlightsPage flightsPage = new GoogleFlightsPage(page);
-                    flightsPage.navigate(origin, destination);
+                    try {
+                        return scrapeFromGoogleFlights(page, origin, destination);
+                    } catch (Exception googleError) {
+                        log.warn("Google Flights scrape failed for {}->{}: {}", origin, destination, googleError.getMessage());
+                    }
 
-                    // Random delay to mimic human reading the page
-                    sleepRandom();
+                    try {
+                        return scrapeFromVietnamAirlines(page, origin, destination);
+                    } catch (Exception vaError) {
+                        log.warn("Vietnam Airlines scrape failed for {}->{}: {}", origin, destination, vaError.getMessage());
+                    }
 
-                    FlightInfo info = flightsPage.extractCheapestFlight(origin, destination);
-                    log.info("Scraped flight: {} {} {} (price: {})",
-                            info.getAirline(), info.getDuration(), info.getOrigin() + "->" + info.getDestination(),
-                            info.getPrice());
-                    return info;
+                    try {
+                        return scrapeFromAirAsia(page, origin, destination);
+                    } catch (Exception airAsiaError) {
+                        log.warn("AirAsia scrape failed for {}->{}: {}", origin, destination, airAsiaError.getMessage());
+                    }
+
+                    throw new IllegalStateException("All flight sources failed for route " + origin + "->" + destination);
                 }
             }
         }
+    }
+
+    private FlightInfo scrapeFromGoogleFlights(Page page, String origin, String destination) throws Exception {
+        GoogleFlightsPage flightsPage = new GoogleFlightsPage(page);
+        flightsPage.navigate(origin, destination);
+        sleepRandom();
+        return logScrapeResult("Google Flights", flightsPage.extractCheapestFlight(origin, destination));
+    }
+
+    private FlightInfo scrapeFromVietnamAirlines(Page page, String origin, String destination) throws Exception {
+        VietnamAirlinesPage flightsPage = new VietnamAirlinesPage(page);
+        flightsPage.navigate(origin, destination);
+        sleepRandom();
+        return logScrapeResult("Vietnam Airlines", flightsPage.extractCheapestFlight(origin, destination));
+    }
+
+    private FlightInfo scrapeFromAirAsia(Page page, String origin, String destination) throws Exception {
+        AirAsiaPage flightsPage = new AirAsiaPage(page);
+        flightsPage.navigate(origin, destination);
+        sleepRandom();
+        return logScrapeResult("AirAsia", flightsPage.extractCheapestFlight(origin, destination));
+    }
+
+    private FlightInfo logScrapeResult(String source, FlightInfo info) {
+        log.info("Scraped flight from {}: {} {} {} (price: {})",
+                source, info.getAirline(), info.getDuration(), info.getOrigin() + "->" + info.getDestination(),
+                info.getPrice());
+        return info;
     }
 
     private static void sleepRandom() throws InterruptedException {
