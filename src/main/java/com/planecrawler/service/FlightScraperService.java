@@ -12,6 +12,7 @@ import org.springframework.retry.annotation.Backoff;
 import org.springframework.retry.annotation.Retryable;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -51,7 +52,16 @@ public class FlightScraperService {
             backoff = @Backoff(delay = 5_000, multiplier = 2)
     )
     public FlightInfo scrape(String origin, String destination) throws Exception {
-        log.info("Scraping flights from {} to {}", origin, destination);
+        return scrape(origin, destination, null);
+    }
+
+    @Retryable(
+            retryFor = Exception.class,
+            maxAttempts = 3,
+            backoff = @Backoff(delay = 5_000, multiplier = 2)
+    )
+    public FlightInfo scrape(String origin, String destination, LocalDate flightDate) throws Exception {
+        log.info("Scraping flights from {} to {} on {}", origin, destination, flightDate);
 
         try (Playwright playwright = Playwright.create()) {
             BrowserType.LaunchOptions launchOptions = new BrowserType.LaunchOptions()
@@ -75,19 +85,19 @@ public class FlightScraperService {
                     List<FlightInfo> results = new ArrayList<>();
 
                     try {
-                        results.add(scrapeFromGoogleFlights(page, origin, destination));
+                        results.add(scrapeFromGoogleFlights(page, origin, destination, flightDate));
                     } catch (Exception googleError) {
                         log.warn("Google Flights scrape failed for {}->{}: {}", origin, destination, googleError.getMessage());
                     }
 
                     try {
-                        results.add(scrapeFromVietnamAirlines(page, origin, destination));
+                        results.add(scrapeFromVietnamAirlines(page, origin, destination, flightDate));
                     } catch (Exception vaError) {
                         log.warn("Vietnam Airlines scrape failed for {}->{}: {}", origin, destination, vaError.getMessage());
                     }
 
                     try {
-                        results.add(scrapeFromAirAsia(page, origin, destination));
+                        results.add(scrapeFromAirAsia(page, origin, destination, flightDate));
                     } catch (Exception airAsiaError) {
                         log.warn("AirAsia scrape failed for {}->{}: {}", origin, destination, airAsiaError.getMessage());
                     }
@@ -112,23 +122,23 @@ public class FlightScraperService {
                 .orElseThrow(() -> new IllegalArgumentException("No flight results available"));
     }
 
-    private FlightInfo scrapeFromGoogleFlights(Page page, String origin, String destination) throws Exception {
+    private FlightInfo scrapeFromGoogleFlights(Page page, String origin, String destination, LocalDate flightDate) throws Exception {
         GoogleFlightsPage flightsPage = new GoogleFlightsPage(page);
-        flightsPage.navigate(origin, destination);
+        flightsPage.navigate(origin, destination, flightDate);
         sleepRandom();
         return logScrapeResult("Google Flights", flightsPage.extractCheapestFlight(origin, destination));
     }
 
-    private FlightInfo scrapeFromVietnamAirlines(Page page, String origin, String destination) throws Exception {
+    private FlightInfo scrapeFromVietnamAirlines(Page page, String origin, String destination, LocalDate flightDate) throws Exception {
         VietnamAirlinesPage flightsPage = new VietnamAirlinesPage(page);
-        flightsPage.navigate(origin, destination);
+        flightsPage.navigate(origin, destination, flightDate);
         sleepRandom();
         return logScrapeResult("Vietnam Airlines", flightsPage.extractCheapestFlight(origin, destination));
     }
 
-    private FlightInfo scrapeFromAirAsia(Page page, String origin, String destination) throws Exception {
+    private FlightInfo scrapeFromAirAsia(Page page, String origin, String destination, LocalDate flightDate) throws Exception {
         AirAsiaPage flightsPage = new AirAsiaPage(page);
-        flightsPage.navigate(origin, destination);
+        flightsPage.navigate(origin, destination, flightDate);
         sleepRandom();
         return logScrapeResult("AirAsia", flightsPage.extractCheapestFlight(origin, destination));
     }

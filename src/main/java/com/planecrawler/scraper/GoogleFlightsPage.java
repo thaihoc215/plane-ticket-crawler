@@ -4,6 +4,9 @@ import com.microsoft.playwright.Page;
 import com.planecrawler.model.FlightInfo;
 
 import java.math.BigDecimal;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -34,7 +37,13 @@ public class GoogleFlightsPage {
      * Navigates to the Google Flights search page for the given route.
      */
     public void navigate(String origin, String destination) {
-        String url = String.format(BASE_URL, origin, destination);
+        navigate(origin, destination, null);
+    }
+
+    public void navigate(String origin, String destination, LocalDate flightDate) {
+        String datePart = flightDate == null ? ""
+                : "+" + URLEncoder.encode("on " + flightDate, StandardCharsets.UTF_8);
+        String url = String.format(BASE_URL, origin, destination) + datePart;
         page.navigate(url);
         // Wait for flight results to load
         page.waitForSelector(PRICE_SELECTOR, new Page.WaitForSelectorOptions().setTimeout(15_000));

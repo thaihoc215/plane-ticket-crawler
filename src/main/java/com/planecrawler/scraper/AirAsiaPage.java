@@ -4,6 +4,7 @@ import com.microsoft.playwright.Page;
 import com.planecrawler.model.FlightInfo;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.regex.Matcher;
@@ -31,11 +32,18 @@ public class AirAsiaPage {
     }
 
     public void navigate(String origin, String destination) {
+        navigate(origin, destination, null);
+    }
+
+    public void navigate(String origin, String destination, LocalDate flightDate) {
         String url = String.format(
                 SEARCH_URL_TEMPLATE,
                 URLEncoder.encode(origin, StandardCharsets.UTF_8),
                 URLEncoder.encode(destination, StandardCharsets.UTF_8)
         );
+        if (flightDate != null) {
+            url = url + "&departureDate=" + URLEncoder.encode(flightDate.toString(), StandardCharsets.UTF_8);
+        }
         page.navigate(url);
         page.waitForSelector("body", new Page.WaitForSelectorOptions().setTimeout(15_000));
     }

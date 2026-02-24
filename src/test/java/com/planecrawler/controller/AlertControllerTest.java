@@ -35,6 +35,7 @@ class AlertControllerTest {
         Map<String, Object> request = Map.of(
                 "origin", "JFK",
                 "destination", "LAX",
+                "departureDate", "2026-03-01",
                 "targetPrice", 250,
                 "userEmail", "test@example.com"
         );
@@ -46,6 +47,7 @@ class AlertControllerTest {
                 .andExpect(jsonPath("$.alertId").exists())
                 .andExpect(jsonPath("$.origin").value("JFK"))
                 .andExpect(jsonPath("$.destination").value("LAX"))
+                .andExpect(jsonPath("$.tripType").value("ONE_WAY"))
                 .andExpect(jsonPath("$.userEmail").value("test@example.com"))
                 .andExpect(jsonPath("$.message").value("Alert created successfully"));
 
@@ -57,6 +59,7 @@ class AlertControllerTest {
         Map<String, Object> request = Map.of(
                 "origin", "JFK",
                 "destination", "LAX",
+                "departureDate", "2026-03-01",
                 "targetPrice", 250,
                 "userEmail", "not-an-email"
         );
@@ -71,6 +74,7 @@ class AlertControllerTest {
     void createAlert_withMissingOrigin_returnsBadRequest() throws Exception {
         Map<String, Object> request = Map.of(
                 "destination", "LAX",
+                "departureDate", "2026-03-01",
                 "targetPrice", 250,
                 "userEmail", "test@example.com"
         );
@@ -86,7 +90,25 @@ class AlertControllerTest {
         Map<String, Object> request = Map.of(
                 "origin", "JFK",
                 "destination", "LAX",
+                "departureDate", "2026-03-01",
                 "targetPrice", -50,
+                "userEmail", "test@example.com"
+        );
+
+        mockMvc.perform(post("/api/alerts")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void createRoundTripAlert_withMissingReturnFields_returnsBadRequest() throws Exception {
+        Map<String, Object> request = Map.of(
+                "origin", "JFK",
+                "destination", "LAX",
+                "tripType", "ROUND_TRIP",
+                "departureDate", "2026-03-01",
+                "targetPrice", 250,
                 "userEmail", "test@example.com"
         );
 

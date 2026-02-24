@@ -29,10 +29,14 @@ Main capabilities:
 
 1. **User creates an alert**
    - Calls `POST /api/alerts` with:
-     - `origin`
-     - `destination`
-     - `targetPrice`
-     - `userEmail`
+      - `origin`
+      - `destination`
+      - `tripType` (`ONE_WAY` or `ROUND_TRIP`)
+      - `departureDate`
+      - `returnDate` (required for `ROUND_TRIP`)
+      - `targetPrice`
+      - `returnTargetPrice` (required for `ROUND_TRIP`)
+      - `userEmail`
    - API validates and stores a `PriceAlert`.
 
 2. **Scheduler runs hourly**
@@ -46,8 +50,9 @@ Main capabilities:
    - Queries all sources (Google Flights, Vietnam Airlines, AirAsia) and returns the best (lowest) price among successful results
 
 4. **Price comparison**
-   - Current price is saved to `lastCheckedPrice`.
-   - If `currentPrice <= targetPrice`, the alert is matched.
+    - Current price is saved to `lastCheckedPrice`.
+    - For `ONE_WAY`: if `currentPrice <= targetPrice`, the alert is matched.
+    - For `ROUND_TRIP`: outbound and return legs are checked separately and an alert is sent if **either** leg is under (or equal to) its configured threshold. The email includes both leg prices.
 
 5. **Email delivery**
    - `EmailService` sends an HTML email with route and fare details.

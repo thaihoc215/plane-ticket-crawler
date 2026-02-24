@@ -46,21 +46,35 @@ public class AlertWatcherService {
 
     private void processAlert(PriceAlert alert) {
         try {
-            FlightInfo flight = scraperService.scrape(alert.getOrigin(), alert.getDestination());
+            FlightInfo outboundFlight = scraperService.scrape(
+                    alert.getOrigin(), alert.getDestination(), alert.getDepartureDate());
+            FlightInfo returnFlight = null;
+            if (alert.getTripType() == PriceAlert.TripType.ROUND_TRIP && alert.getReturnDate() != null) {
+                returnFlight = scraperService.scrape(
+                        alert.getDestination(), alert.getOrigin(), alert.getReturnDate());
+                alert.setLastCheckedReturnPrice(returnFlight.getPrice());
+            }
 
-            alert.setLastCheckedPrice(flight.getPrice());
+            alert.setLastCheckedPrice(outboundFlight.getPrice());
             alert.setLastCheckedAt(LocalDateTime.now());
             alertRepository.save(alert);
 
-            int cmp = flight.getPrice().compareTo(alert.getTargetPrice());
-            if (cmp <= 0) {
-                log.info("Price match! Alert id={} – current={} target={} route={}->{} email={}",
-                        alert.getId(), flight.getPrice(), alert.getTargetPrice(),
+            boolean outboundMatched = outboundFlight.getPrice().compareTo(alert.getTargetPrice()) <= 0;
+            boolean returnMatched = returnFlight != null
+                    && alert.getReturnTargetPrice() != null
+                    && returnFlight.getPrice().compareTo(alert.getReturnTargetPrice()) <= 0;
+            if (outboundMatched || returnMatched) {
+                log.info("Price match! Alert id={} – outbound current={} target={} return current={} target={} route={}->{} email={}",
+                        alert.getId(), outboundFlight.getPrice(), alert.getTargetPrice(),
+                        returnFlight == null ? "-" : returnFlight.getPrice(),
+                        alert.getReturnTargetPrice() == null ? "-" : alert.getReturnTargetPrice(),
                         alert.getOrigin(), alert.getDestination(), alert.getUserEmail());
-                emailService.sendPriceAlert(alert, flight);
+                emailService.sendPriceAlert(alert, outboundFlight, returnFlight, outboundMatched, returnMatched);
             } else {
-                log.debug("No match for alert id={}: current={} > target={}",
-                        alert.getId(), flight.getPrice(), alert.getTargetPrice());
+                log.debug("No match for alert id={}: outbound current={} target={} return current={} target={}",
+                        alert.getId(), outboundFlight.getPrice(), alert.getTargetPrice(),
+                        returnFlight == null ? "-" : returnFlight.getPrice(),
+                        alert.getReturnTargetPrice() == null ? "-" : alert.getReturnTargetPrice());
             }
         } catch (Exception e) {
             log.error("Failed to process alert id={} for route {}->{}: {}",

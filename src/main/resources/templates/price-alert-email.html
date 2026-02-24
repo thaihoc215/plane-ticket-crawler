@@ -39,8 +39,16 @@
 
         <table class="details-table">
             <tr>
+                <td>Trip Type</td>
+                <td th:text="${tripType}">ONE_WAY</td>
+            </tr>
+            <tr>
                 <td>Route</td>
                 <td th:text="${origin} + ' → ' + ${destination}">JFK → LAX</td>
+            </tr>
+            <tr>
+                <td>Departure Date</td>
+                <td th:text="${departureDate}">2026-03-01</td>
             </tr>
             <tr>
                 <td>Airline</td>
@@ -49,6 +57,18 @@
             <tr>
                 <td>Flight Duration</td>
                 <td th:text="${duration}">5h 30m</td>
+            </tr>
+            <tr th:if="${tripType.name() == 'ROUND_TRIP'}">
+                <td>Return Date</td>
+                <td th:text="${returnDate}">2026-03-10</td>
+            </tr>
+            <tr th:if="${tripType.name() == 'ROUND_TRIP'}">
+                <td>Return Price</td>
+                <td th:text="'$' + ${returnPrice}">180</td>
+            </tr>
+            <tr th:if="${tripType.name() == 'ROUND_TRIP'}">
+                <td>Return Target</td>
+                <td th:text="'$' + ${returnTargetPrice}">200</td>
             </tr>
         </table>
 

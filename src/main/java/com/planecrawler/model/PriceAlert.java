@@ -10,6 +10,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Entity
@@ -18,6 +19,11 @@ import java.time.LocalDateTime;
 @Setter
 @NoArgsConstructor
 public class PriceAlert {
+
+    public enum TripType {
+        ONE_WAY,
+        ROUND_TRIP
+    }
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -31,10 +37,23 @@ public class PriceAlert {
     @Column(nullable = false)
     private String destination;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private TripType tripType = TripType.ONE_WAY;
+
+    @Column(nullable = false)
+    private LocalDate departureDate;
+
+    @Column
+    private LocalDate returnDate;
+
     @NotNull
     @Positive
     @Column(nullable = false, precision = 10, scale = 2)
     private BigDecimal targetPrice;
+
+    @Column(precision = 10, scale = 2)
+    private BigDecimal returnTargetPrice;
 
     @NotBlank
     @Email
@@ -43,6 +62,9 @@ public class PriceAlert {
 
     @Column(precision = 10, scale = 2)
     private BigDecimal lastCheckedPrice;
+
+    @Column(precision = 10, scale = 2)
+    private BigDecimal lastCheckedReturnPrice;
 
     @Column(nullable = false)
     private boolean active = true;
@@ -57,6 +79,18 @@ public class PriceAlert {
         this.origin = origin;
         this.destination = destination;
         this.targetPrice = targetPrice;
+        this.userEmail = userEmail;
+    }
+
+    public PriceAlert(String origin, String destination, TripType tripType, LocalDate departureDate, LocalDate returnDate,
+                      BigDecimal targetPrice, BigDecimal returnTargetPrice, String userEmail) {
+        this.origin = origin;
+        this.destination = destination;
+        this.tripType = tripType;
+        this.departureDate = departureDate;
+        this.returnDate = returnDate;
+        this.targetPrice = targetPrice;
+        this.returnTargetPrice = returnTargetPrice;
         this.userEmail = userEmail;
     }
 }
