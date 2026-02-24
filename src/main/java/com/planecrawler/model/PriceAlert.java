@@ -47,6 +47,9 @@ public class PriceAlert {
     @Column(precision = 10, scale = 2)
     private BigDecimal returnTargetPrice;
 
+    @Column(precision = 10, scale = 2)
+    private BigDecimal roundTripTargetPrice;
+
     @Column(nullable = false)
     private String userEmail;
 
@@ -73,7 +76,8 @@ public class PriceAlert {
     }
 
     public PriceAlert(String origin, String destination, TripType tripType, LocalDate departureDate, LocalDate returnDate,
-                      BigDecimal targetPrice, BigDecimal returnTargetPrice, String userEmail) {
+                      BigDecimal targetPrice, BigDecimal returnTargetPrice, BigDecimal roundTripTargetPrice,
+                      String userEmail) {
         this.origin = origin;
         this.destination = destination;
         this.tripType = tripType;
@@ -81,6 +85,7 @@ public class PriceAlert {
         this.returnDate = returnDate;
         this.targetPrice = targetPrice;
         this.returnTargetPrice = returnTargetPrice;
+        this.roundTripTargetPrice = roundTripTargetPrice;
         this.userEmail = userEmail;
     }
 }

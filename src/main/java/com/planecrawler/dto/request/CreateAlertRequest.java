@@ -17,5 +17,6 @@ public record CreateAlertRequest(
         LocalDate returnDate,
         @NotNull @Positive BigDecimal targetPrice,
         @Positive BigDecimal returnTargetPrice,
+        @Positive BigDecimal roundTripTargetPrice,
         @NotBlank @Email String userEmail
 ) {}

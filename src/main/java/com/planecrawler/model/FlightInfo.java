@@ -10,5 +10,7 @@ public record FlightInfo(
         String airline,
         String duration,
         String origin,
-        String destination
+        String destination,
+        String departureTime,
+        String arrivalTime
 ) {}

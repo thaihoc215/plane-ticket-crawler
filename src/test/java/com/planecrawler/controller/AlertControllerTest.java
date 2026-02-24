@@ -122,18 +122,39 @@ class AlertControllerTest {
     }
 
     @Test
+    void createRoundTripAlert_withOnlyRoundTripTargetPrice_returnsCreated() throws Exception {
+        Map<String, Object> request = Map.of(
+                "origin", "SGN",
+                "destination", "HAN",
+                "tripType", "ROUND_TRIP",
+                "departureDate", "2026-03-01",
+                "returnDate", "2026-03-10",
+                "targetPrice", 300,
+                "roundTripTargetPrice", 500,
+                "userEmail", "roundtrip@example.com"
+        );
+
+        mockMvc.perform(post("/api/alerts")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.tripType").value("ROUND_TRIP"))
+                .andExpect(jsonPath("$.roundTripTargetPrice").value(500));
+    }
+
+    @Test
     void listAlerts_withStatusFilter_returnsMatchingAlerts() throws Exception {
         alertRepository.deleteAll();
 
         var activeAlert = alertRepository.save(new com.planecrawler.model.PriceAlert(
                 "JFK", "LAX", com.planecrawler.model.PriceAlert.TripType.ONE_WAY,
                 java.time.LocalDate.parse("2026-03-01"), null,
-                new java.math.BigDecimal("250"), null, "active@example.com"));
+                new java.math.BigDecimal("250"), null, null, "active@example.com"));
 
         var inactiveAlert = alertRepository.save(new com.planecrawler.model.PriceAlert(
                 "SFO", "SEA", com.planecrawler.model.PriceAlert.TripType.ONE_WAY,
                 java.time.LocalDate.parse("2026-03-01"), null,
-                new java.math.BigDecimal("200"), null, "inactive@example.com"));
+                new java.math.BigDecimal("200"), null, null, "inactive@example.com"));
         inactiveAlert.setActive(false);
         alertRepository.save(inactiveAlert);
 
@@ -157,7 +178,7 @@ class AlertControllerTest {
         var alert = alertRepository.save(new com.planecrawler.model.PriceAlert(
                 "JFK", "LAX", com.planecrawler.model.PriceAlert.TripType.ONE_WAY,
                 java.time.LocalDate.parse("2026-03-01"), null,
-                new java.math.BigDecimal("250"), null, "ops@example.com"));
+                new java.math.BigDecimal("250"), null, null, "ops@example.com"));
 
         mockMvc.perform(patch("/api/alerts/{id}/deactivate", alert.getId()))
                 .andExpect(status().isOk())

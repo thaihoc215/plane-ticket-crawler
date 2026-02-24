@@ -15,6 +15,7 @@ public record CreateAlertResponse(
         LocalDate returnDate,
         BigDecimal targetPrice,
         BigDecimal returnTargetPrice,
+        BigDecimal roundTripTargetPrice,
         String userEmail
 ) {
     public static CreateAlertResponse from(PriceAlert alert) {
@@ -28,6 +29,7 @@ public record CreateAlertResponse(
                 alert.getReturnDate(),
                 alert.getTargetPrice(),
                 alert.getReturnTargetPrice(),
+                alert.getRoundTripTargetPrice(),
                 alert.getUserEmail()
         );
     }

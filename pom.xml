@@ -18,8 +18,7 @@
     <description>High-performance plane ticket crawler and alert system</description>
 
     <properties>
-        <!-- Compile with Java 17; deploy on Java 21 for Virtual Threads support -->
-        <java.version>17</java.version>
+        <java.version>21</java.version>
         <playwright.version>1.49.0</playwright.version>
     </properties>
 

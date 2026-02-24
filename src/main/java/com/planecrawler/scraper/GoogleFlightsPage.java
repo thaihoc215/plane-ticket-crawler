@@ -11,6 +11,8 @@ import java.math.BigDecimal;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -51,10 +53,16 @@ public class GoogleFlightsPage {
     }
 
     public void navigate(String origin, String destination, LocalDate flightDate) {
-        String datePart = flightDate == null ? ""
-                : "+" + URLEncoder.encode("on " + flightDate, StandardCharsets.UTF_8);
-        String url = String.format(BASE_URL, origin, destination) + datePart;
-        log.info("Navigating to Google Flights: {}", url);
+        navigate(origin, destination, flightDate, null);
+    }
+
+    public void navigate(String origin, String destination, LocalDate departDate, LocalDate returnDate) {
+        String datePart = departDate == null ? ""
+                : "+" + URLEncoder.encode("on " + departDate, StandardCharsets.UTF_8);
+        String returnPart = returnDate == null ? ""
+                : "+" + URLEncoder.encode("returning " + returnDate, StandardCharsets.UTF_8);
+        String url = String.format(BASE_URL, origin, destination) + datePart + returnPart;
+        log.info("Navigating to Google Flights{}: {}", returnDate != null ? " (round-trip)" : "", url);
         page.navigate(url);
 
         dismissConsentBanner();
@@ -70,22 +78,39 @@ public class GoogleFlightsPage {
     }
 
     public FlightInfo extractCheapestFlight(String origin, String destination) {
-        // Tier 1: aria-label based extraction
+        List<FlightInfo> flights = extractFlights(origin, destination, 1);
+        if (flights.isEmpty()) {
+            throw new IllegalStateException("No flight results found on Google Flights");
+        }
+        return flights.get(0);
+    }
+
+    public List<FlightInfo> extractFlights(String origin, String destination, int limit) {
+        // Tier 1: JavaScript multi-card extraction (most reliable for multiple results)
         try {
-            return extractViaAriaLabels(origin, destination);
+            List<FlightInfo> results = extractMultipleViaJavaScript(origin, destination, limit);
+            if (!results.isEmpty()) {
+                return results;
+            }
         } catch (Exception e) {
-            log.warn("Tier 1 (aria-label) extraction failed: {}", e.getMessage());
+            log.warn("Multi-card JS extraction failed: {}", e.getMessage());
         }
 
-        // Tier 2: JavaScript text scanning on [data-gs] cards
+        // Tier 2: aria-label single extraction fallback
         try {
-            return extractViaJavaScript(origin, destination);
+            return List.of(extractViaAriaLabels(origin, destination));
         } catch (Exception e) {
-            log.warn("Tier 2 (JS evaluate) extraction failed: {}", e.getMessage());
+            log.warn("Tier 2 (aria-label) extraction failed: {}", e.getMessage());
         }
 
         // Tier 3: Full page text regex (last resort)
-        return extractViaFullPageText(origin, destination);
+        try {
+            return List.of(extractViaFullPageText(origin, destination));
+        } catch (Exception e) {
+            log.warn("Tier 3 (full-page text) extraction failed: {}", e.getMessage());
+        }
+
+        return List.of();
     }
 
     private FlightInfo extractViaAriaLabels(String origin, String destination) {
@@ -112,52 +137,62 @@ public class GoogleFlightsPage {
             duration = durationLocator.first().textContent().trim();
         }
 
-        return new FlightInfo(price, airline, duration, origin, destination);
+        return new FlightInfo(price, airline, duration, origin, destination, "N/A", "N/A");
     }
 
     @SuppressWarnings("unchecked")
-    private FlightInfo extractViaJavaScript(String origin, String destination) {
+    private List<FlightInfo> extractMultipleViaJavaScript(String origin, String destination, int limit) {
         Object result = page.evaluate(
-                "() => {\n" +
+                "(limit) => {\n" +
                 "  const cards = document.querySelectorAll('[data-gs]');\n" +
-                "  if (!cards.length) return null;\n" +
-                "  const card = cards[0];\n" +
-                "  const text = card.innerText;\n" +
-                "  /* Match prices: $123, ₫1,234,000, VND 1,234,000, 1,234,000 VND */\n" +
-                "  const dollarMatch = text.match(/\\$(\\d[\\d,]*)/);\n" +
-                "  const dongMatch = text.match(/[₫đ](\\d[\\d,]*)/) || text.match(/(\\d{1,3}(?:,\\d{3})+)\\s*(?:VND|đ)/i) || text.match(/VND\\s*(\\d[\\d,]*)/);\n" +
-                "  const priceMatch = dollarMatch || dongMatch;\n" +
-                "  const durationMatch = text.match(/(\\d+\\s*hr?\\s*\\d*\\s*min?)/);\n" +
-                "  const lines = text.split('\\n').filter(l => l.trim());\n" +
-                "  const airline = lines.find(l =>\n" +
-                "    !l.match(/^\\d/) && !l.match(/^[\\$₫đ]/) &&\n" +
-                "    !l.match(/hr|min|stop|nonstop/i) &&\n" +
-                "    !l.match(/^[A-Z]{3}\\s/) &&\n" +
-                "    l.length > 2 && l.length < 40\n" +
-                "  ) || 'Unknown';\n" +
-                "  return {\n" +
-                "    price: priceMatch ? priceMatch[1].replace(/,/g, '') : null,\n" +
-                "    duration: durationMatch ? durationMatch[0] : 'N/A',\n" +
-                "    airline: airline.trim()\n" +
-                "  };\n" +
-                "}"
+                "  if (!cards.length) return [];\n" +
+                "  const flights = [];\n" +
+                "  for (const card of cards) {\n" +
+                "    if (flights.length >= limit) break;\n" +
+                "    const text = card.innerText;\n" +
+                "    const dollarMatch = text.match(/\\$(\\d[\\d,]*)/);\n" +
+                "    const dongMatch = text.match(/[₫đ](\\d[\\d,]*)/) || text.match(/(\\d{1,3}(?:,\\d{3})+)\\s*(?:VND|đ)/i) || text.match(/VND\\s*(\\d[\\d,]*)/);\n" +
+                "    const priceMatch = dollarMatch || dongMatch;\n" +
+                "    if (!priceMatch) continue;\n" +
+                "    const durationMatch = text.match(/(\\d+\\s*hr?\\s*\\d*\\s*min?)/);\n" +
+                "    const timeMatch = text.match(/(\\d{1,2}:\\d{2}\\s*(?:AM|PM)?)\\s*[–\\-]\\s*(\\d{1,2}:\\d{2}\\s*(?:AM|PM)?)/);\n" +
+                "    const lines = text.split('\\n').filter(l => l.trim());\n" +
+                "    const airline = lines.find(l =>\n" +
+                "      !l.match(/^\\d/) && !l.match(/^[\\$₫đ]/) &&\n" +
+                "      !l.match(/hr|min|stop|nonstop/i) &&\n" +
+                "      !l.match(/^[A-Z]{3}\\s/) &&\n" +
+                "      l.length > 2 && l.length < 40\n" +
+                "    ) || 'Unknown';\n" +
+                "    flights.push({\n" +
+                "      price: priceMatch[1].replace(/,/g, ''),\n" +
+                "      duration: durationMatch ? durationMatch[0] : 'N/A',\n" +
+                "      airline: airline.trim(),\n" +
+                "      departureTime: timeMatch ? timeMatch[1].trim() : 'N/A',\n" +
+                "      arrivalTime: timeMatch ? timeMatch[2].trim() : 'N/A'\n" +
+                "    });\n" +
+                "  }\n" +
+                "  return flights;\n" +
+                "}",
+                limit
         );
 
         if (result == null) {
-            throw new IllegalStateException("No [data-gs] cards found via JS evaluation");
+            return List.of();
         }
 
-        Map<String, Object> map = (Map<String, Object>) result;
-        Object priceVal = map.get("price");
-        if (priceVal == null) {
-            throw new IllegalStateException("No price pattern found in flight card text");
+        List<Map<String, Object>> items = (List<Map<String, Object>>) result;
+        List<FlightInfo> flights = new ArrayList<>();
+        for (Map<String, Object> map : items) {
+            Object priceVal = map.get("price");
+            if (priceVal == null) continue;
+            BigDecimal price = new BigDecimal(priceVal.toString());
+            String airline = map.getOrDefault("airline", "Unknown").toString();
+            String duration = map.getOrDefault("duration", "N/A").toString();
+            String departureTime = map.getOrDefault("departureTime", "N/A").toString();
+            String arrivalTime = map.getOrDefault("arrivalTime", "N/A").toString();
+            flights.add(new FlightInfo(price, airline, duration, origin, destination, departureTime, arrivalTime));
         }
-
-        BigDecimal price = new BigDecimal(priceVal.toString());
-        String airline = map.getOrDefault("airline", "Unknown").toString();
-        String duration = map.getOrDefault("duration", "N/A").toString();
-
-        return new FlightInfo(price, airline, duration, origin, destination);
+        return flights;
     }
 
     @SuppressWarnings("unchecked")
@@ -189,7 +224,7 @@ public class GoogleFlightsPage {
         BigDecimal price = new BigDecimal(priceVal.toString());
         String duration = map.getOrDefault("duration", "N/A").toString();
 
-        return new FlightInfo(price, "Unknown", duration, origin, destination);
+        return new FlightInfo(price, "Unknown", duration, origin, destination, "N/A", "N/A");
     }
 
     private void dismissConsentBanner() {

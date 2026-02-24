@@ -9,6 +9,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -16,9 +17,11 @@ import java.util.List;
  * Scheduled service that polls all active price alerts every hour and
  * triggers the scraper + email pipeline when a price match is found.
  *
- * <p>Because spring.threads.virtual.enabled=true is set, each scraping task
- * runs on a Java 21 Virtual Thread, so blocking I/O inside
- * {@link FlightScraperService} does not waste carrier threads.
+ * <p>The {@code @Scheduled} method runs on a virtual thread
+ * (via {@code spring.threads.virtual.enabled=true}), but alerts are
+ * processed sequentially. Parallelism happens inside
+ * {@link FlightScraperService}, where each airline source is scraped
+ * concurrently on its own virtual thread.
  */
 @Service
 @RequiredArgsConstructor
@@ -46,39 +49,73 @@ public class AlertWatcherService {
 
     private void processAlert(PriceAlert alert) {
         try {
-            FlightInfo outboundFlight = scraperService.scrape(
+            List<FlightInfo> outboundFlights = scraperService.scrape(
                     alert.getOrigin(), alert.getDestination(), alert.getDepartureDate());
-            FlightInfo returnFlight = null;
+
+            List<FlightInfo> returnFlights = List.of();
+            List<FlightInfo> roundTripFlights = List.of();
+
             if (alert.getTripType() == PriceAlert.TripType.ROUND_TRIP && alert.getReturnDate() != null) {
-                returnFlight = scraperService.scrape(
-                        alert.getDestination(), alert.getOrigin(), alert.getReturnDate());
-                alert.setLastCheckedReturnPrice(returnFlight.price());
+                if (alert.getRoundTripTargetPrice() != null) {
+                    roundTripFlights = scraperService.scrapeRoundTrip(
+                            alert.getOrigin(), alert.getDestination(),
+                            alert.getDepartureDate(), alert.getReturnDate());
+                }
+                if (alert.getReturnTargetPrice() != null) {
+                    returnFlights = scraperService.scrape(
+                            alert.getDestination(), alert.getOrigin(), alert.getReturnDate());
+                }
             }
 
-            alert.setLastCheckedPrice(outboundFlight.price());
+            BigDecimal cheapestOutbound = outboundFlights.get(0).price();
+            BigDecimal cheapestReturn = returnFlights.isEmpty() ? null : returnFlights.get(0).price();
+            BigDecimal cheapestRoundTrip = roundTripFlights.isEmpty() ? null : roundTripFlights.get(0).price();
+            alert.setLastCheckedPrice(cheapestOutbound);
+            if (cheapestReturn != null) {
+                alert.setLastCheckedReturnPrice(cheapestReturn);
+            }
             alert.setLastCheckedAt(LocalDateTime.now());
             alertRepository.save(alert);
 
-            boolean outboundMatched = outboundFlight.price().compareTo(alert.getTargetPrice()) <= 0;
-            boolean returnMatched = returnFlight != null
-                    && alert.getReturnTargetPrice() != null
-                    && returnFlight.price().compareTo(alert.getReturnTargetPrice()) <= 0;
-            if (outboundMatched || returnMatched) {
-                log.info("Price match! Alert id={} – outbound current={} target={} return current={} target={} route={}->{} email={}",
-                        alert.getId(), outboundFlight.price(), alert.getTargetPrice(),
-                        returnFlight == null ? "-" : returnFlight.price(),
-                        alert.getReturnTargetPrice() == null ? "-" : alert.getReturnTargetPrice(),
+            List<FlightInfo> matchedOutbound = filterByTargetPrice(outboundFlights, alert.getTargetPrice());
+            List<FlightInfo> matchedReturn = alert.getReturnTargetPrice() != null
+                    ? filterByTargetPrice(returnFlights, alert.getReturnTargetPrice())
+                    : List.of();
+
+            boolean roundTripMatched = false;
+            BigDecimal roundTripPrice = null;
+            List<FlightInfo> matchedRoundTrip = List.of();
+            if (alert.getRoundTripTargetPrice() != null && cheapestRoundTrip != null) {
+                roundTripPrice = cheapestRoundTrip;
+                roundTripMatched = roundTripPrice.compareTo(alert.getRoundTripTargetPrice()) <= 0;
+                if (roundTripMatched) {
+                    matchedRoundTrip = filterByTargetPrice(roundTripFlights, alert.getRoundTripTargetPrice());
+                }
+            }
+
+            if (!matchedOutbound.isEmpty() || !matchedReturn.isEmpty() || roundTripMatched) {
+                log.info("Price match! Alert id={} – {} outbound, {} return under target, roundTrip={} ({}<={}), route={}->{} email={}",
+                        alert.getId(), matchedOutbound.size(), matchedReturn.size(),
+                        roundTripMatched, roundTripPrice, alert.getRoundTripTargetPrice(),
                         alert.getOrigin(), alert.getDestination(), alert.getUserEmail());
-                emailService.sendPriceAlert(alert, outboundFlight, returnFlight, outboundMatched, returnMatched);
+                emailService.sendPriceAlert(alert, matchedOutbound, matchedReturn, roundTripMatched, roundTripPrice, matchedRoundTrip);
             } else {
-                log.debug("No match for alert id={}: outbound current={} target={} return current={} target={}",
-                        alert.getId(), outboundFlight.price(), alert.getTargetPrice(),
-                        returnFlight == null ? "-" : returnFlight.price(),
-                        alert.getReturnTargetPrice() == null ? "-" : alert.getReturnTargetPrice());
+                log.debug("No match for alert id={}: cheapest outbound={} target={}, cheapest return={} target={}, roundTrip={} target={}",
+                        alert.getId(), cheapestOutbound, alert.getTargetPrice(),
+                        cheapestReturn == null ? "-" : cheapestReturn,
+                        alert.getReturnTargetPrice() == null ? "-" : alert.getReturnTargetPrice(),
+                        roundTripPrice == null ? "-" : roundTripPrice,
+                        alert.getRoundTripTargetPrice() == null ? "-" : alert.getRoundTripTargetPrice());
             }
         } catch (Exception e) {
             log.error("Failed to process alert id={} for route {}->{}: {}",
                     alert.getId(), alert.getOrigin(), alert.getDestination(), e.getMessage(), e);
         }
+    }
+
+    private List<FlightInfo> filterByTargetPrice(List<FlightInfo> flights, BigDecimal targetPrice) {
+        return flights.stream()
+                .filter(f -> f.price().compareTo(targetPrice) <= 0)
+                .toList();
     }
 }

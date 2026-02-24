@@ -44,6 +44,7 @@ public class AlertController {
                 request.returnDate(),
                 request.targetPrice(),
                 request.returnTargetPrice(),
+                request.roundTripTargetPrice(),
                 request.userEmail()
         );
         PriceAlert saved = alertRepository.save(alert);
@@ -96,8 +97,8 @@ public class AlertController {
             if (request.returnDate() == null) {
                 throw new BadRequestException("returnDate is required for ROUND_TRIP");
             }
-            if (request.returnTargetPrice() == null) {
-                throw new BadRequestException("returnTargetPrice is required for ROUND_TRIP");
+            if (request.returnTargetPrice() == null && request.roundTripTargetPrice() == null) {
+                throw new BadRequestException("At least one of returnTargetPrice or roundTripTargetPrice is required for ROUND_TRIP");
             }
         }
     }

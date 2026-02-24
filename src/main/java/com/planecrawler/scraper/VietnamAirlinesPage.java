@@ -83,7 +83,7 @@ public class VietnamAirlinesPage {
 
         String rawPrice = priceLocator.first().textContent();
         BigDecimal price = parsePrice(rawPrice);
-        return new FlightInfo(price, "Vietnam Airlines", "N/A", origin, destination);
+        return new FlightInfo(price, "Vietnam Airlines", "N/A", origin, destination, "N/A", "N/A");
     }
 
     @SuppressWarnings("unchecked")
@@ -112,7 +112,7 @@ public class VietnamAirlinesPage {
         }
 
         BigDecimal price = new BigDecimal(priceVal.toString());
-        return new FlightInfo(price, "Vietnam Airlines", "N/A", origin, destination);
+        return new FlightInfo(price, "Vietnam Airlines", "N/A", origin, destination, "N/A", "N/A");
     }
 
     private static BigDecimal parsePrice(String rawPrice) {

@@ -14,6 +14,7 @@ public record AlertResponse(
         LocalDate returnDate,
         BigDecimal targetPrice,
         BigDecimal returnTargetPrice,
+        BigDecimal roundTripTargetPrice,
         String userEmail,
         boolean active
 ) {
@@ -27,6 +28,7 @@ public record AlertResponse(
                 alert.getReturnDate(),
                 alert.getTargetPrice(),
                 alert.getReturnTargetPrice(),
+                alert.getRoundTripTargetPrice(),
                 alert.getUserEmail(),
                 alert.isActive()
         );
