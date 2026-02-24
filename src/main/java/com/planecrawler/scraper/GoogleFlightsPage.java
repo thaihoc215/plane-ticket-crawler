@@ -3,12 +3,9 @@ package com.planecrawler.scraper;
 import com.microsoft.playwright.Page;
 import com.planecrawler.model.FlightInfo;
 
-import java.math.BigDecimal;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * Page Object Model for Google Flights.
@@ -24,8 +21,6 @@ public class GoogleFlightsPage {
     private static final String PRICE_SELECTOR   = "[data-gs] .YMlIz.FpEdX span";
     private static final String AIRLINE_SELECTOR = "[data-gs] .sSHqwe.tPgKwe.ogfYpf span";
     private static final String DURATION_SELECTOR= "[data-gs] .gvkrdb.AdWm1c.tPgKwe.ogfYpf";
-
-    private static final Pattern PRICE_PATTERN = Pattern.compile("[\\d,]+");
 
     private final Page page;
 
@@ -59,16 +54,6 @@ public class GoogleFlightsPage {
         String airline    = page.locator(AIRLINE_SELECTOR).first().textContent();
         String duration   = page.locator(DURATION_SELECTOR).first().textContent();
 
-        BigDecimal price  = parsePrice(rawPrice);
-        return new FlightInfo(price, airline.trim(), duration.trim(), origin, destination);
-    }
-
-    private static BigDecimal parsePrice(String rawPrice) {
-        String cleaned = rawPrice.replaceAll(",", "");
-        Matcher m = PRICE_PATTERN.matcher(cleaned);
-        if (m.find()) {
-            return new BigDecimal(m.group());
-        }
-        throw new IllegalStateException("Unable to parse price from: " + rawPrice);
+        return new FlightInfo(PriceParser.parse(rawPrice), airline.trim(), duration.trim(), origin, destination);
     }
 }

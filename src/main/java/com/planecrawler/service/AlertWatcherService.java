@@ -52,28 +52,28 @@ public class AlertWatcherService {
             if (alert.getTripType() == PriceAlert.TripType.ROUND_TRIP && alert.getReturnDate() != null) {
                 returnFlight = scraperService.scrape(
                         alert.getDestination(), alert.getOrigin(), alert.getReturnDate());
-                alert.setLastCheckedReturnPrice(returnFlight.getPrice());
+                alert.setLastCheckedReturnPrice(returnFlight.price());
             }
 
-            alert.setLastCheckedPrice(outboundFlight.getPrice());
+            alert.setLastCheckedPrice(outboundFlight.price());
             alert.setLastCheckedAt(LocalDateTime.now());
             alertRepository.save(alert);
 
-            boolean outboundMatched = outboundFlight.getPrice().compareTo(alert.getTargetPrice()) <= 0;
+            boolean outboundMatched = outboundFlight.price().compareTo(alert.getTargetPrice()) <= 0;
             boolean returnMatched = returnFlight != null
                     && alert.getReturnTargetPrice() != null
-                    && returnFlight.getPrice().compareTo(alert.getReturnTargetPrice()) <= 0;
+                    && returnFlight.price().compareTo(alert.getReturnTargetPrice()) <= 0;
             if (outboundMatched || returnMatched) {
                 log.info("Price match! Alert id={} – outbound current={} target={} return current={} target={} route={}->{} email={}",
-                        alert.getId(), outboundFlight.getPrice(), alert.getTargetPrice(),
-                        returnFlight == null ? "-" : returnFlight.getPrice(),
+                        alert.getId(), outboundFlight.price(), alert.getTargetPrice(),
+                        returnFlight == null ? "-" : returnFlight.price(),
                         alert.getReturnTargetPrice() == null ? "-" : alert.getReturnTargetPrice(),
                         alert.getOrigin(), alert.getDestination(), alert.getUserEmail());
                 emailService.sendPriceAlert(alert, outboundFlight, returnFlight, outboundMatched, returnMatched);
             } else {
                 log.debug("No match for alert id={}: outbound current={} target={} return current={} target={}",
-                        alert.getId(), outboundFlight.getPrice(), alert.getTargetPrice(),
-                        returnFlight == null ? "-" : returnFlight.getPrice(),
+                        alert.getId(), outboundFlight.price(), alert.getTargetPrice(),
+                        returnFlight == null ? "-" : returnFlight.price(),
                         alert.getReturnTargetPrice() == null ? "-" : alert.getReturnTargetPrice());
             }
         } catch (Exception e) {

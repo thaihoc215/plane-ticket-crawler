@@ -1,7 +1,7 @@
 package com.planecrawler.scraper;
 
 import java.util.List;
-import java.util.Random;
+import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * Provides a pool of realistic browser User-Agent strings to rotate through
@@ -19,14 +19,12 @@ public class UserAgentRotator {
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0"
     );
 
-    private static final Random RANDOM = new Random();
-
     private UserAgentRotator() {}
 
     /**
      * Returns a randomly selected User-Agent string.
      */
     public static String random() {
-        return USER_AGENTS.get(RANDOM.nextInt(USER_AGENTS.size()));
+        return USER_AGENTS.get(ThreadLocalRandom.current().nextInt(USER_AGENTS.size()));
     }
 }

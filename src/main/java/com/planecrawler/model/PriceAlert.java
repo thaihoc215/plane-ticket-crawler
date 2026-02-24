@@ -1,10 +1,6 @@
 package com.planecrawler.model;
 
 import jakarta.persistence.*;
-import jakarta.validation.constraints.Email;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Positive;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -29,11 +25,9 @@ public class PriceAlert {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @NotBlank
     @Column(nullable = false)
     private String origin;
 
-    @NotBlank
     @Column(nullable = false)
     private String destination;
 
@@ -47,16 +41,12 @@ public class PriceAlert {
     @Column
     private LocalDate returnDate;
 
-    @NotNull
-    @Positive
     @Column(nullable = false, precision = 10, scale = 2)
     private BigDecimal targetPrice;
 
     @Column(precision = 10, scale = 2)
     private BigDecimal returnTargetPrice;
 
-    @NotBlank
-    @Email
     @Column(nullable = false)
     private String userEmail;
 

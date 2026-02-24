@@ -108,7 +108,7 @@ public class FlightScraperService {
 
                     FlightInfo best = selectBestPrice(results);
                     log.info("Best price selected for {}->{}: {} ({}, {})",
-                            origin, destination, best.getPrice(), best.getAirline(), best.getDuration());
+                            origin, destination, best.price(), best.airline(), best.duration());
                     return best;
                 }
             }
@@ -117,8 +117,8 @@ public class FlightScraperService {
 
     static FlightInfo selectBestPrice(List<FlightInfo> flights) {
         return flights.stream()
-                .filter(flight -> flight != null && flight.getPrice() != null)
-                .min(Comparator.comparing(FlightInfo::getPrice))
+                .filter(flight -> flight != null && flight.price() != null)
+                .min(Comparator.comparing(FlightInfo::price))
                 .orElseThrow(() -> new IllegalArgumentException("No flight results available"));
     }
 
@@ -145,8 +145,8 @@ public class FlightScraperService {
 
     private FlightInfo logScrapeResult(String source, FlightInfo info) {
         log.info("Scraped flight from {}: {} {} {} (price: {})",
-                source, info.getAirline(), info.getDuration(), info.getOrigin() + "->" + info.getDestination(),
-                info.getPrice());
+                source, info.airline(), info.duration(), info.origin() + "->" + info.destination(),
+                info.price());
         return info;
     }
 

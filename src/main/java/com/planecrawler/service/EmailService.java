@@ -42,14 +42,14 @@ public class EmailService {
         ctx.setVariable("departureDate", alert.getDepartureDate());
         ctx.setVariable("returnDate", alert.getReturnDate());
         ctx.setVariable("targetPrice", alert.getTargetPrice());
-        ctx.setVariable("currentPrice", outboundFlight.getPrice());
-        ctx.setVariable("airline", outboundFlight.getAirline());
-        ctx.setVariable("duration", outboundFlight.getDuration());
+        ctx.setVariable("currentPrice", outboundFlight.price());
+        ctx.setVariable("airline", outboundFlight.airline());
+        ctx.setVariable("duration", outboundFlight.duration());
         ctx.setVariable("outboundMatched", outboundMatched);
         ctx.setVariable("returnTargetPrice", alert.getReturnTargetPrice());
-        ctx.setVariable("returnPrice", returnFlight == null ? null : returnFlight.getPrice());
-        ctx.setVariable("returnAirline", returnFlight == null ? null : returnFlight.getAirline());
-        ctx.setVariable("returnDuration", returnFlight == null ? null : returnFlight.getDuration());
+        ctx.setVariable("returnPrice", returnFlight == null ? null : returnFlight.price());
+        ctx.setVariable("returnAirline", returnFlight == null ? null : returnFlight.airline());
+        ctx.setVariable("returnDuration", returnFlight == null ? null : returnFlight.duration());
         ctx.setVariable("returnMatched", returnMatched);
 
         String htmlBody = templateEngine.process("price-alert-email", ctx);
@@ -59,14 +59,14 @@ public class EmailService {
             MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
             helper.setTo(alert.getUserEmail());
             helper.setSubject(String.format("✈ Price Alert: %s → %s (depart $%s%s)",
-                    alert.getOrigin(), alert.getDestination(), outboundFlight.getPrice(),
-                    returnFlight == null ? "" : ", return $" + returnFlight.getPrice()));
+                    alert.getOrigin(), alert.getDestination(), outboundFlight.price(),
+                    returnFlight == null ? "" : ", return $" + returnFlight.price()));
             helper.setText(htmlBody, true);
 
             mailSender.send(message);
             log.info("Price-alert email sent to {} for route {}->{} at depart price {} and return price {}",
-                    alert.getUserEmail(), alert.getOrigin(), alert.getDestination(), outboundFlight.getPrice(),
-                    returnFlight == null ? "-" : returnFlight.getPrice());
+                    alert.getUserEmail(), alert.getOrigin(), alert.getDestination(), outboundFlight.price(),
+                    returnFlight == null ? "-" : returnFlight.price());
         } catch (MessagingException e) {
             log.error("Failed to send email to {} for alert id={}: {}",
                     alert.getUserEmail(), alert.getId(), e.getMessage(), e);

@@ -3,12 +3,9 @@ package com.planecrawler.scraper;
 import com.microsoft.playwright.Page;
 import com.planecrawler.model.FlightInfo;
 
-import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * Page Object Model for AirAsia booking flow.
@@ -23,7 +20,6 @@ public class AirAsiaPage {
             "[data-testid*='airline'], [class*='airline'], [class*='carrier']";
     private static final String DURATION_SELECTOR =
             "[data-testid*='duration'], [class*='duration'], [class*='travel-time']";
-    private static final Pattern PRICE_PATTERN = Pattern.compile("[\\d,]+");
 
     private final Page page;
 
@@ -52,7 +48,7 @@ public class AirAsiaPage {
         String rawPrice = textOrThrow(PRICE_SELECTOR, "price");
         String airline = textOrThrow(AIRLINE_SELECTOR, "airline");
         String duration = textOrThrow(DURATION_SELECTOR, "duration");
-        return new FlightInfo(parsePrice(rawPrice), airline.trim(), duration.trim(), origin, destination);
+        return new FlightInfo(PriceParser.parse(rawPrice), airline.trim(), duration.trim(), origin, destination);
     }
 
     private String textOrThrow(String selector, String fieldName) {
@@ -61,14 +57,5 @@ public class AirAsiaPage {
             throw new IllegalStateException("AirAsia " + fieldName + " not found");
         }
         return locator.first().textContent();
-    }
-
-    private static BigDecimal parsePrice(String rawPrice) {
-        String cleaned = rawPrice.replaceAll(",", "");
-        Matcher m = PRICE_PATTERN.matcher(cleaned);
-        if (m.find()) {
-            return new BigDecimal(m.group());
-        }
-        throw new IllegalStateException("Unable to parse price from: " + rawPrice);
     }
 }

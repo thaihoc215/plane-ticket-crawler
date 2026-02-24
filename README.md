@@ -77,6 +77,7 @@ curl -X POST http://localhost:8080/api/alerts \
   -d '{
     "origin": "JFK",
     "destination": "LAX",
+    "departureDate": "2026-03-01",
     "targetPrice": 250,
     "userEmail": "user@example.com"
   }'
@@ -90,6 +91,8 @@ Expected response:
   "alertId": 1,
   "origin": "JFK",
   "destination": "LAX",
+  "tripType": "ONE_WAY",
+  "departureDate": "2026-03-01",
   "targetPrice": 250,
   "userEmail": "user@example.com"
 }
