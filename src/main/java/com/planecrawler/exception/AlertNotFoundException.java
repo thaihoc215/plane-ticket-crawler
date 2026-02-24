@@ -1,4 +1,4 @@
-package com.planecrawler.controller;
+package com.planecrawler.exception;
 
 public class AlertNotFoundException extends RuntimeException {
     public AlertNotFoundException(Long id) {
