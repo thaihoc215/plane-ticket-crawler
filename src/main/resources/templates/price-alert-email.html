@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Flight Price Alert</title>
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #f4f4f4; margin: 0; padding: 0; }
+        .container { max-width: 600px; margin: 40px auto; background: #ffffff; border-radius: 8px;
+                     overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.12); }
+        .header { background-color: #1a73e8; color: white; padding: 24px 32px; text-align: center; }
+        .header h1 { margin: 0; font-size: 24px; }
+        .body { padding: 32px; color: #333333; line-height: 1.6; }
+        .price-box { background: #e8f5e9; border-left: 4px solid #43a047; border-radius: 4px;
+                     padding: 16px 24px; margin: 24px 0; }
+        .price-box .current-price { font-size: 36px; font-weight: bold; color: #2e7d32; }
+        .price-box .target-price { font-size: 14px; color: #555; margin-top: 4px; }
+        .details-table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+        .details-table td { padding: 8px 12px; border-bottom: 1px solid #eeeeee; }
+        .details-table td:first-child { font-weight: bold; color: #555; width: 40%; }
+        .cta { text-align: center; margin: 32px 0; }
+        .cta a { background-color: #1a73e8; color: white; text-decoration: none; padding: 14px 32px;
+                 border-radius: 4px; font-size: 16px; font-weight: bold; display: inline-block; }
+        .footer { background: #f4f4f4; text-align: center; padding: 16px; font-size: 12px; color: #888; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>✈ Flight Price Alert</h1>
+    </div>
+    <div class="body">
+        <p>Great news! A flight matching your price alert has been found.</p>
+
+        <div class="price-box">
+            <div class="current-price" th:text="'$' + ${currentPrice}">$199</div>
+            <div class="target-price" th:text="'Your target: $' + ${targetPrice}">Your target: $250</div>
+        </div>
+
+        <table class="details-table">
+            <tr>
+                <td>Route</td>
+                <td th:text="${origin} + ' → ' + ${destination}">JFK → LAX</td>
+            </tr>
+            <tr>
+                <td>Airline</td>
+                <td th:text="${airline}">Delta Airlines</td>
+            </tr>
+            <tr>
+                <td>Flight Duration</td>
+                <td th:text="${duration}">5h 30m</td>
+            </tr>
+        </table>
+
+        <p>Prices change quickly — act fast before this deal disappears!</p>
+
+        <div class="cta">
+            <a href="https://www.google.com/travel/flights" target="_blank">Book Now on Google Flights</a>
+        </div>
+    </div>
+    <div class="footer">
+        <p>You received this email because you set up a price alert at Plane Ticket Crawler.</p>
+        <p th:text="'Sent to: ' + ${userEmail}">Sent to: user@example.com</p>
+    </div>
+</div>
+</body>
+</html>
