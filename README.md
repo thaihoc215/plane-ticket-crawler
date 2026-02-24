@@ -6,6 +6,9 @@ Plane Ticket Crawler is a Spring Boot backend that lets users create flight pric
 
 Main capabilities:
 - Create alerts through `POST /api/alerts`
+- List alerts through `GET /api/alerts?status=active|inactive|all`
+- Deactivate alerts through `PATCH /api/alerts/{id}/deactivate`
+- Delete alerts through `DELETE /api/alerts/{id}`
 - Store alerts with Spring Data JPA
 - Scrape live flight data (price, airline, duration) with Playwright from Google Flights, Vietnam Airlines, and AirAsia
 - Check alerts every hour and send HTML email notifications on price match

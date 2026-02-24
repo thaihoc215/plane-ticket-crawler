@@ -10,4 +10,6 @@ import java.util.List;
 public interface PriceAlertRepository extends JpaRepository<PriceAlert, Long> {
 
     List<PriceAlert> findByActiveTrue();
+
+    List<PriceAlert> findByActive(boolean active);
 }

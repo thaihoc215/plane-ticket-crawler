@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -67,6 +68,39 @@ public class AlertController {
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
+    @GetMapping
+    public ResponseEntity<List<PriceAlert>> listAlerts(@RequestParam(defaultValue = "active") String status) {
+        return ResponseEntity.ok(getAlertsByStatus(status));
+    }
+
+    @PatchMapping("/{id}/deactivate")
+    public ResponseEntity<Map<String, Object>> deactivateAlert(@PathVariable Long id) {
+        PriceAlert alert = alertRepository.findById(id)
+                .orElseThrow(() -> new AlertNotFoundException(id));
+        alert.setActive(false);
+        alertRepository.save(alert);
+        return ResponseEntity.ok(Map.of("message", "Alert deactivated", "alertId", id));
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Map<String, Object>> deleteAlert(@PathVariable Long id) {
+        if (!alertRepository.existsById(id)) {
+            throw new AlertNotFoundException(id);
+        }
+        alertRepository.deleteById(id);
+        return ResponseEntity.ok(Map.of("message", "Alert deleted", "alertId", id));
+    }
+
+    private List<PriceAlert> getAlertsByStatus(String status) {
+        return switch (status.toLowerCase()) {
+            case "active" -> alertRepository.findByActive(true);
+            case "inactive" -> alertRepository.findByActive(false);
+            case "all" -> alertRepository.findAll();
+            default -> throw new IllegalArgumentException(
+                    "Invalid status filter: " + status + ". Valid values are: active, inactive, all");
+        };
+    }
+
     private static void validateTripTypeSpecificFields(AlertRequest request, PriceAlert.TripType tripType) {
         if (request.departureDate() == null) {
             throw new IllegalArgumentException("departureDate is required");
@@ -84,6 +118,11 @@ public class AlertController {
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<Map<String, Object>> handleBadRequest(IllegalArgumentException ex) {
         return ResponseEntity.badRequest().body(Map.of("message", ex.getMessage()));
+    }
+
+    @ExceptionHandler(AlertNotFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleNotFound(AlertNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("message", ex.getMessage()));
     }
 
     /**

@@ -13,6 +13,9 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -116,5 +119,56 @@ class AlertControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void listAlerts_withStatusFilter_returnsMatchingAlerts() throws Exception {
+        alertRepository.deleteAll();
+
+        var activeAlert = alertRepository.save(new com.planecrawler.model.PriceAlert(
+                "JFK", "LAX", com.planecrawler.model.PriceAlert.TripType.ONE_WAY,
+                java.time.LocalDate.parse("2026-03-01"), null,
+                new java.math.BigDecimal("250"), null, "active@example.com"));
+
+        var inactiveAlert = alertRepository.save(new com.planecrawler.model.PriceAlert(
+                "SFO", "SEA", com.planecrawler.model.PriceAlert.TripType.ONE_WAY,
+                java.time.LocalDate.parse("2026-03-01"), null,
+                new java.math.BigDecimal("200"), null, "inactive@example.com"));
+        inactiveAlert.setActive(false);
+        alertRepository.save(inactiveAlert);
+
+        mockMvc.perform(get("/api/alerts").param("status", "active"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].userEmail").value("active@example.com"));
+
+        mockMvc.perform(get("/api/alerts").param("status", "inactive"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].userEmail").value("inactive@example.com"));
+
+        mockMvc.perform(get("/api/alerts").param("status", "all"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2));
+    }
+
+    @Test
+    void deactivateAndDeleteAlert_updatesStatusAndRemovesFromDatabase() throws Exception {
+        var alert = alertRepository.save(new com.planecrawler.model.PriceAlert(
+                "JFK", "LAX", com.planecrawler.model.PriceAlert.TripType.ONE_WAY,
+                java.time.LocalDate.parse("2026-03-01"), null,
+                new java.math.BigDecimal("250"), null, "ops@example.com"));
+
+        mockMvc.perform(patch("/api/alerts/{id}/deactivate", alert.getId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("Alert deactivated"));
+
+        assertThat(alertRepository.findById(alert.getId())).get().extracting("active").isEqualTo(false);
+
+        mockMvc.perform(delete("/api/alerts/{id}", alert.getId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("Alert deleted"));
+
+        assertThat(alertRepository.existsById(alert.getId())).isFalse();
     }
 }
