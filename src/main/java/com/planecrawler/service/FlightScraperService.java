@@ -8,11 +8,16 @@ import com.planecrawler.scraper.VietnamAirlinesPage;
 import com.planecrawler.scraper.UserAgentRotator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import jakarta.annotation.PostConstruct;
 import org.springframework.retry.annotation.Backoff;
 import org.springframework.retry.annotation.Retryable;
 import org.springframework.stereotype.Service;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -26,6 +31,8 @@ import java.util.concurrent.ThreadLocalRandom;
  *   <li>@Retryable – retries up to 3 times with exponential back-off if bot-detection occurs.</li>
  *   <li>try-with-resources – guarantees the Playwright, Browser, BrowserContext, and Page are
  *       closed even if an exception is thrown, preventing memory leaks.</li>
+ *   <li>Separate Page per scraper source – prevents state pollution between sources.</li>
+ *   <li>Screenshot-on-failure – captures debug screenshots when a scraper fails.</li>
  *   <li>Random sleep intervals – mimic human reading/browsing speed.</li>
  *   <li>User-Agent rotation – each run picks a different UA string.</li>
  * </ul>
@@ -37,15 +44,14 @@ public class FlightScraperService {
 
     private static final int MIN_SLEEP_MS = 2_000;
     private static final int MAX_SLEEP_MS = 5_000;
+    private static final String SCREENSHOT_DIR = System.getProperty("java.io.tmpdir") + "/plane-crawler-debug/";
+    private static final String WEBDRIVER_MASK = "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})";
 
-    /**
-     * Scrapes the cheapest available flight for the given route.
-     *
-     * @param origin      IATA airport code or city name (e.g. "JFK")
-     * @param destination IATA airport code or city name (e.g. "LAX")
-     * @return {@link FlightInfo} with price, airline, and duration
-     * @throws Exception if scraping fails after all retry attempts
-     */
+    @PostConstruct
+    void logScreenshotDirectory() {
+        log.info("Debug screenshots will be saved to: {}", SCREENSHOT_DIR);
+    }
+
     @Retryable(
             retryFor = Exception.class,
             maxAttempts = 3,
@@ -77,26 +83,26 @@ public class FlightScraperService {
                         .setViewportSize(1280, 800)
                         .setLocale("en-US");
 
-                try (BrowserContext context = browser.newContext(contextOptions);
-                     Page page = context.newPage()) {
-
-                    // Mask the webdriver flag to reduce bot-detection
-                    page.addInitScript("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})");
+                try (BrowserContext context = browser.newContext(contextOptions)) {
                     List<FlightInfo> results = new ArrayList<>();
 
-                    try {
+                    // Each scraper gets its own Page to prevent state pollution
+                    try (Page page = context.newPage()) {
+                        page.addInitScript(WEBDRIVER_MASK);
                         results.add(scrapeFromGoogleFlights(page, origin, destination, flightDate));
                     } catch (Exception googleError) {
                         log.warn("Google Flights scrape failed for {}->{}: {}", origin, destination, googleError.getMessage());
                     }
 
-                    try {
+                    try (Page page = context.newPage()) {
+                        page.addInitScript(WEBDRIVER_MASK);
                         results.add(scrapeFromVietnamAirlines(page, origin, destination, flightDate));
                     } catch (Exception vaError) {
                         log.warn("Vietnam Airlines scrape failed for {}->{}: {}", origin, destination, vaError.getMessage());
                     }
 
-                    try {
+                    try (Page page = context.newPage()) {
+                        page.addInitScript(WEBDRIVER_MASK);
                         results.add(scrapeFromAirAsia(page, origin, destination, flightDate));
                     } catch (Exception airAsiaError) {
                         log.warn("AirAsia scrape failed for {}->{}: {}", origin, destination, airAsiaError.getMessage());
@@ -123,24 +129,55 @@ public class FlightScraperService {
     }
 
     private FlightInfo scrapeFromGoogleFlights(Page page, String origin, String destination, LocalDate flightDate) throws Exception {
-        GoogleFlightsPage flightsPage = new GoogleFlightsPage(page);
-        flightsPage.navigate(origin, destination, flightDate);
-        sleepRandom();
-        return logScrapeResult("Google Flights", flightsPage.extractCheapestFlight(origin, destination));
+        try {
+            GoogleFlightsPage flightsPage = new GoogleFlightsPage(page);
+            flightsPage.navigate(origin, destination, flightDate);
+            sleepRandom();
+            return logScrapeResult("Google Flights", flightsPage.extractCheapestFlight(origin, destination));
+        } catch (Exception e) {
+            captureDebugScreenshot(page, "GoogleFlights");
+            throw e;
+        }
     }
 
     private FlightInfo scrapeFromVietnamAirlines(Page page, String origin, String destination, LocalDate flightDate) throws Exception {
-        VietnamAirlinesPage flightsPage = new VietnamAirlinesPage(page);
-        flightsPage.navigate(origin, destination, flightDate);
-        sleepRandom();
-        return logScrapeResult("Vietnam Airlines", flightsPage.extractCheapestFlight(origin, destination));
+        try {
+            VietnamAirlinesPage flightsPage = new VietnamAirlinesPage(page);
+            flightsPage.navigate(origin, destination, flightDate);
+            sleepRandom();
+            return logScrapeResult("Vietnam Airlines", flightsPage.extractCheapestFlight(origin, destination));
+        } catch (Exception e) {
+            captureDebugScreenshot(page, "VietnamAirlines");
+            throw e;
+        }
     }
 
     private FlightInfo scrapeFromAirAsia(Page page, String origin, String destination, LocalDate flightDate) throws Exception {
-        AirAsiaPage flightsPage = new AirAsiaPage(page);
-        flightsPage.navigate(origin, destination, flightDate);
-        sleepRandom();
-        return logScrapeResult("AirAsia", flightsPage.extractCheapestFlight(origin, destination));
+        try {
+            AirAsiaPage flightsPage = new AirAsiaPage(page);
+            flightsPage.navigate(origin, destination, flightDate);
+            sleepRandom();
+            return logScrapeResult("AirAsia", flightsPage.extractCheapestFlight(origin, destination));
+        } catch (Exception e) {
+            captureDebugScreenshot(page, "AirAsia");
+            throw e;
+        }
+    }
+
+    private void captureDebugScreenshot(Page page, String source) {
+        try {
+            Path dir = Path.of(SCREENSHOT_DIR);
+            Files.createDirectories(dir);
+            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
+            String filename = source + "_" + timestamp + ".png";
+            Path screenshotPath = dir.resolve(filename);
+            page.screenshot(new Page.ScreenshotOptions()
+                    .setPath(screenshotPath)
+                    .setFullPage(true));
+            log.info("Debug screenshot saved: {}", screenshotPath);
+        } catch (Exception screenshotError) {
+            log.warn("Failed to capture debug screenshot for {}: {}", source, screenshotError.getMessage());
+        }
     }
 
     private FlightInfo logScrapeResult(String source, FlightInfo info) {

@@ -1,25 +1,28 @@
 package com.planecrawler.scraper;
 
+import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
+import com.microsoft.playwright.options.LoadState;
 import com.planecrawler.model.FlightInfo;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
+import java.time.format.DateTimeFormatter;
+import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Page Object Model for Vietnam Airlines booking flow.
  */
 public class VietnamAirlinesPage {
 
-    private static final String SEARCH_URL_TEMPLATE =
-            "https://www.vietnamairlines.com/us/en/book-flight?origin=%s&destination=%s";
-    private static final String PRICE_SELECTOR =
-            "[data-testid*='price'], [class*='price'], [class*='fare']";
-    private static final String AIRLINE_SELECTOR =
-            "[data-testid*='airline'], [class*='airline'], [class*='carrier']";
-    private static final String DURATION_SELECTOR =
-            "[data-testid*='duration'], [class*='duration'], [class*='travel-time']";
+    private static final Logger log = LoggerFactory.getLogger(VietnamAirlinesPage.class);
+
+    private static final String BOOKING_URL = "https://www.vietnamairlines.com/vn/en/book-a-trip/booking";
+    private static final Pattern PRICE_PATTERN = Pattern.compile("[\\d,]+");
 
     private final Page page;
 
@@ -32,30 +35,92 @@ public class VietnamAirlinesPage {
     }
 
     public void navigate(String origin, String destination, LocalDate flightDate) {
-        String url = String.format(
-                SEARCH_URL_TEMPLATE,
-                URLEncoder.encode(origin, StandardCharsets.UTF_8),
-                URLEncoder.encode(destination, StandardCharsets.UTF_8)
-        );
-        if (flightDate != null) {
-            url = url + "&departureDate=" + URLEncoder.encode(flightDate.toString(), StandardCharsets.UTF_8);
-        }
+        String departDate = flightDate != null
+                ? flightDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))
+                : LocalDate.now().plusDays(30).format(DateTimeFormatter.ofPattern("dd/MM/yyyy"));
+
+        String url = BOOKING_URL
+                + "?tripType=1"
+                + "&departCity=" + origin
+                + "&arriveCity=" + destination
+                + "&departDate=" + departDate
+                + "&adultQty=1&childQty=0&infantQty=0";
+
+        log.info("Navigating to Vietnam Airlines: {}", url);
         page.navigate(url);
-        page.waitForSelector("body", new Page.WaitForSelectorOptions().setTimeout(15_000));
+
+        try {
+            page.waitForLoadState(LoadState.NETWORKIDLE,
+                    new Page.WaitForLoadStateOptions().setTimeout(30_000));
+        } catch (Exception e) {
+            log.warn("Vietnam Airlines page did not reach networkidle within timeout");
+        }
+
+        try {
+            page.waitForSelector("[class*='fare'], [class*='price'], [class*='flight-result'], [class*='avail']",
+                    new Page.WaitForSelectorOptions().setTimeout(15_000));
+        } catch (Exception e) {
+            log.debug("Vietnam Airlines fare selectors not found after wait");
+        }
     }
 
     public FlightInfo extractCheapestFlight(String origin, String destination) {
-        String rawPrice = textOrThrow(PRICE_SELECTOR, "price");
-        String airline = textOrThrow(AIRLINE_SELECTOR, "airline");
-        String duration = textOrThrow(DURATION_SELECTOR, "duration");
-        return new FlightInfo(PriceParser.parse(rawPrice), airline.trim(), duration.trim(), origin, destination);
+        try {
+            return extractViaSelectors(origin, destination);
+        } catch (Exception e) {
+            log.warn("Vietnam Airlines selector extraction failed: {}", e.getMessage());
+        }
+
+        return extractViaJavaScript(origin, destination);
     }
 
-    private String textOrThrow(String selector, String fieldName) {
-        var locator = page.locator(selector);
-        if (locator.count() == 0) {
-            throw new IllegalStateException("Vietnam Airlines " + fieldName + " not found");
+    private FlightInfo extractViaSelectors(String origin, String destination) {
+        String priceSelector = "[class*='fare-amount'], [class*='price-amount'], [class*='total-fare'], [class*='lowestPrice']";
+        Locator priceLocator = page.locator(priceSelector);
+        if (priceLocator.count() == 0) {
+            throw new IllegalStateException("Vietnam Airlines price elements not found via selectors");
         }
-        return locator.first().textContent();
+
+        String rawPrice = priceLocator.first().textContent();
+        BigDecimal price = parsePrice(rawPrice);
+        return new FlightInfo(price, "Vietnam Airlines", "N/A", origin, destination);
+    }
+
+    @SuppressWarnings("unchecked")
+    private FlightInfo extractViaJavaScript(String origin, String destination) {
+        Object result = page.evaluate(
+                "() => {\n" +
+                "  const text = document.body.innerText;\n" +
+                "  const vndMatch = text.match(/(\\d{1,3}(?:,\\d{3})+)\\s*(?:VND|đ)/i)\n" +
+                "    || text.match(/(?:VND|đ)\\s*(\\d{1,3}(?:,\\d{3})+)/i)\n" +
+                "    || text.match(/[₫đ](\\d[\\d,]*)/);\n" +
+                "  const usdMatch = text.match(/\\$(\\d[\\d,]*)/)\n" +
+                "    || text.match(/USD\\s*(\\d[\\d,]*)/);\n" +
+                "  const match = vndMatch || usdMatch;\n" +
+                "  return { price: match ? match[1].replace(/,/g, '') : null };\n" +
+                "}"
+        );
+
+        if (result == null) {
+            throw new IllegalStateException("Vietnam Airlines JS extraction returned null");
+        }
+
+        Map<String, Object> map = (Map<String, Object>) result;
+        Object priceVal = map.get("price");
+        if (priceVal == null) {
+            throw new IllegalStateException("Vietnam Airlines price not found on page");
+        }
+
+        BigDecimal price = new BigDecimal(priceVal.toString());
+        return new FlightInfo(price, "Vietnam Airlines", "N/A", origin, destination);
+    }
+
+    private static BigDecimal parsePrice(String rawPrice) {
+        String cleaned = rawPrice.replaceAll(",", "");
+        Matcher m = PRICE_PATTERN.matcher(cleaned);
+        if (m.find()) {
+            return new BigDecimal(m.group());
+        }
+        throw new IllegalStateException("Unable to parse price from: " + rawPrice);
     }
 }
