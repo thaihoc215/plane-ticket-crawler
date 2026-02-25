@@ -12,8 +12,6 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * Page Object Model for AirAsia booking flow.
@@ -25,8 +23,6 @@ public class AirAsiaPage {
 
     private static final String SEARCH_URL = "https://www.airasia.com/flights/search/";
     private static final DateTimeFormatter AIRASIA_DATE_FORMAT = DateTimeFormatter.ofPattern("MM/dd/yyyy");
-    private static final Pattern PRICE_PATTERN = Pattern.compile("[\\d,]+");
-
     private final Page page;
 
     public AirAsiaPage(Page page) {
@@ -130,7 +126,7 @@ public class AirAsiaPage {
         for (int i = 0; i < count; i++) {
             try {
                 String rawPrice = priceLocator.nth(i).textContent();
-                BigDecimal price = parsePrice(rawPrice);
+                BigDecimal price = PriceParser.parse(rawPrice);
                 flights.add(new FlightInfo(price, "AirAsia", "N/A", origin, destination, "N/A", "N/A"));
             } catch (Exception e) {
                 log.debug("Failed to parse AirAsia price element {}: {}", i, e.getMessage());
@@ -173,12 +169,4 @@ public class AirAsiaPage {
         return flights;
     }
 
-    private static BigDecimal parsePrice(String rawPrice) {
-        String cleaned = rawPrice.replaceAll(",", "");
-        Matcher m = PRICE_PATTERN.matcher(cleaned);
-        if (m.find()) {
-            return new BigDecimal(m.group());
-        }
-        throw new IllegalStateException("Unable to parse price from: " + rawPrice);
-    }
 }

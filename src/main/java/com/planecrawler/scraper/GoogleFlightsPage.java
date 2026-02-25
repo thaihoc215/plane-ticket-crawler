@@ -40,8 +40,6 @@ public class GoogleFlightsPage {
     private static final String DURATION_ARIA_SELECTOR =
             "[data-gs] [aria-label*='Total duration'], [data-gs] [aria-label*='hr'], [data-gs] [aria-label*='min']";
 
-    private static final Pattern PRICE_PATTERN = Pattern.compile("[\\d,]+");
-
     private final Page page;
 
     public GoogleFlightsPage(Page page) {
@@ -120,7 +118,7 @@ public class GoogleFlightsPage {
         }
 
         String rawPrice = priceLocator.first().textContent();
-        BigDecimal price = parsePrice(rawPrice);
+        BigDecimal price = PriceParser.parse(rawPrice);
 
         String airline = "Unknown";
         Locator cards = page.locator(FLIGHT_CARD_SELECTOR);
@@ -253,12 +251,4 @@ public class GoogleFlightsPage {
         return "Unknown";
     }
 
-    private static BigDecimal parsePrice(String rawPrice) {
-        String cleaned = rawPrice.replaceAll(",", "");
-        Matcher m = PRICE_PATTERN.matcher(cleaned);
-        if (m.find()) {
-            return new BigDecimal(m.group());
-        }
-        throw new IllegalStateException("Unable to parse price from: " + rawPrice);
-    }
 }
