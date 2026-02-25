@@ -2,6 +2,7 @@ package com.planecrawler.scheduler;
 
 import com.planecrawler.service.AlertWatcherService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -11,6 +12,7 @@ import org.springframework.stereotype.Component;
  */
 @Component
 @RequiredArgsConstructor
+@ConditionalOnProperty(name = "alert.watcher.enabled", havingValue = "true", matchIfMissing = true)
 public class AlertScheduler {
 
     private final AlertWatcherService alertWatcherService;

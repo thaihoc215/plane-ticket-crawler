@@ -5,67 +5,194 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     <title>Flight Price Alert</title>
     <style>
-        body { font-family: Arial, sans-serif; background-color: #f4f4f4; margin: 0; padding: 0; }
-        .container { max-width: 600px; margin: 40px auto; background: #ffffff; border-radius: 8px;
-                     overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.12); }
-        .header { background-color: #1a73e8; color: white; padding: 24px 32px; text-align: center; }
+        /* ── Base ────────────────────────────────────────────────── */
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f4;
+            margin: 0; padding: 0;
+            -webkit-text-size-adjust: 100%;
+        }
+        .container {
+            max-width: 600px;
+            margin: 32px auto;
+            background: #ffffff;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+        }
+        .header {
+            background-color: #1a73e8;
+            color: white;
+            padding: 24px 32px;
+            text-align: center;
+        }
         .header h1 { margin: 0; font-size: 24px; }
-        .body { padding: 32px; color: #333333; line-height: 1.6; }
-        .price-box { background: #e8f5e9; border-left: 4px solid #43a047; border-radius: 4px;
-                     padding: 16px 24px; margin: 24px 0; }
-        .price-box .label { font-size: 14px; color: #555; margin-bottom: 4px; }
-        .price-box .target-price { font-size: 14px; color: #555; margin-top: 4px; }
-        .section-title { font-size: 18px; font-weight: bold; color: #1a73e8; margin: 24px 0 12px 0; }
-        .flight-table { width: 100%; border-collapse: collapse; margin: 12px 0; }
-        .flight-table th { background: #f5f5f5; text-align: left; padding: 10px 12px; border-bottom: 2px solid #ddd;
-                           font-size: 13px; color: #555; }
-        .flight-table td { padding: 10px 12px; border-bottom: 1px solid #eeeeee; font-size: 14px; }
-        .flight-table tr:last-child td { border-bottom: none; }
-        .price-cell { font-weight: bold; color: #2e7d32; }
+        .body { padding: 28px 32px; color: #333333; line-height: 1.6; }
+
+        /* ── Summary table (Trip Type / Route / Date) ─────────── */
         .details-table { width: 100%; border-collapse: collapse; margin: 16px 0; }
-        .details-table td { padding: 8px 12px; border-bottom: 1px solid #eeeeee; }
+        .details-table td { padding: 8px 12px; border-bottom: 1px solid #eeeeee; font-size: 14px; }
         .details-table td:first-child { font-weight: bold; color: #555; width: 40%; }
-        .cta { text-align: center; margin: 32px 0; }
-        .cta a { background-color: #1a73e8; color: white; text-decoration: none; padding: 14px 32px;
-                 border-radius: 4px; font-size: 16px; font-weight: bold; display: inline-block; }
-        .footer { background: #f4f4f4; text-align: center; padding: 16px; font-size: 12px; color: #888; }
+
+        /* ── Price highlight box ──────────────────────────────── */
+        .price-box {
+            background: #e8f5e9;
+            border-left: 4px solid #43a047;
+            border-radius: 4px;
+            padding: 14px 20px;
+            margin: 20px 0;
+        }
+        .price-box .label  { font-size: 14px; color: #555; margin-bottom: 4px; }
+        .price-box .amount { font-size: 22px; font-weight: bold; color: #2e7d32; margin: 6px 0; }
+        .price-box .target { font-size: 13px; color: #666; }
+
+        /* ── Flight results table ─────────────────────────────── */
+        .flight-table { width: 100%; border-collapse: collapse; margin: 12px 0; }
+        .flight-table thead th {
+            background: #f5f5f5;
+            text-align: left;
+            padding: 10px 12px;
+            border-bottom: 2px solid #ddd;
+            font-size: 12px;
+            color: #555;
+            white-space: nowrap;
+        }
+        .flight-table tbody td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #eeeeee;
+            font-size: 14px;
+            vertical-align: middle;
+        }
+        .flight-table tbody tr:last-child td { border-bottom: none; }
+        .price-cell { font-weight: bold; color: #2e7d32; white-space: nowrap; }
+        .num-cell   { color: #aaa; font-size: 12px; }
+
+        /* ── CTA button ───────────────────────────────────────── */
+        .cta { text-align: center; margin: 28px 0 8px; }
+        .cta a {
+            background-color: #1a73e8;
+            color: white;
+            text-decoration: none;
+            padding: 14px 36px;
+            border-radius: 4px;
+            font-size: 16px;
+            font-weight: bold;
+            display: inline-block;
+        }
+
+        /* ── Footer ───────────────────────────────────────────── */
+        .footer {
+            background: #f4f4f4;
+            text-align: center;
+            padding: 16px;
+            font-size: 12px;
+            color: #888;
+        }
+
+        /* ══ Mobile ≤ 600 px ════════════════════════════════════ */
+        @media screen and (max-width: 600px) {
+            .container {
+                margin: 0 !important;
+                border-radius: 0 !important;
+                box-shadow: none !important;
+            }
+            .header { padding: 18px 16px !important; }
+            .header h1 { font-size: 20px !important; }
+            .body { padding: 20px 16px !important; }
+
+            /* Details table: label + value stacked */
+            .details-table td { display: block !important; width: 100% !important; box-sizing: border-box; }
+            .details-table td:first-child { border-bottom: none !important; padding-bottom: 2px !important; }
+            .details-table td:last-child  { padding-top: 2px !important; color: #333 !important; }
+            .details-table tr { display: block !important; margin-bottom: 4px; }
+
+            /* Flight table → card list */
+            .flight-table          { display: block !important; }
+            .flight-table thead    { display: none !important; }
+            .flight-table tbody    { display: block !important; }
+            .flight-table tbody tr {
+                display: block !important;
+                border: 1px solid #e0e0e0 !important;
+                border-radius: 8px !important;
+                margin-bottom: 12px !important;
+                padding: 4px 0 !important;
+                background: #fafafa !important;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.06) !important;
+            }
+            .flight-table tbody td {
+                display: flex !important;
+                justify-content: space-between !important;
+                align-items: center !important;
+                padding: 8px 14px !important;
+                border-bottom: 1px solid #eeeeee !important;
+                font-size: 14px !important;
+            }
+            .flight-table tbody tr:last-child td:last-child { border-bottom: none !important; }
+            /* Label on the left, value on the right */
+            .flight-table tbody td::before {
+                content: attr(data-label);
+                font-size: 12px;
+                font-weight: bold;
+                color: #888;
+                text-transform: uppercase;
+                letter-spacing: 0.03em;
+                flex-shrink: 0;
+                margin-right: 8px;
+            }
+            /* Hide the row-number cell on mobile */
+            .flight-table tbody td.num-cell { display: none !important; }
+
+            .price-box { padding: 12px 14px !important; }
+            .price-box .amount { font-size: 20px !important; }
+
+            .cta a {
+                display: block !important;
+                padding: 14px 16px !important;
+                text-align: center !important;
+            }
+        }
     </style>
 </head>
 <body>
 <div class="container">
-    <div class="header">
-        <h1>✈ Flight Price Alert</h1>
-    </div>
-    <div class="body">
-        <p>Great news! We found flights matching your price alert.</p>
 
-        <table class="details-table">
+    <!-- Header -->
+    <div class="header">
+        <h1>&#9992;&#65039; Flight Price Alert</h1>
+    </div>
+
+    <div class="body">
+        <p style="margin-top:0;">Great news! We found flights matching your price alert.</p>
+
+        <!-- Trip summary -->
+        <table class="details-table" role="presentation">
             <tr>
                 <td>Trip Type</td>
                 <td th:text="${tripType}">ONE_WAY</td>
             </tr>
             <tr>
                 <td>Route</td>
-                <td th:text="${origin} + ' → ' + ${destination}">JFK → LAX</td>
+                <td th:text="${origin} + ' → ' + ${destination}">SGN → BKK</td>
             </tr>
             <tr>
                 <td>Departure Date</td>
-                <td th:text="${departureDate}">2026-03-01</td>
+                <td th:text="${departureDate}">2026-12-10</td>
             </tr>
             <tr th:if="${tripType.name() == 'ROUND_TRIP'}">
                 <td>Return Date</td>
-                <td th:text="${returnDate}">2026-03-10</td>
+                <td th:text="${returnDate}">2026-12-15</td>
             </tr>
         </table>
 
-        <!-- Outbound flights -->
+        <!-- ── Outbound flights ──────────────────────────────── -->
         <div th:if="${!outboundFlights.isEmpty()}">
             <div class="price-box">
-                <div class="label" th:text="'Outbound: ' + ${origin} + ' → ' + ${destination}">Outbound: JFK → LAX</div>
-                <div class="target-price" th:text="'Your target: $' + ${targetPrice}">Your target: $250</div>
+                <div class="label"  th:text="'Outbound: ' + ${origin} + ' → ' + ${destination}">Outbound</div>
+                <div class="amount" th:text="'₫' + ${outboundFlights[0].price()}">₫2,000,000</div>
+                <div class="target" th:text="'Your target: ₫' + ${targetPrice}">Target: ₫2,500,000</div>
             </div>
 
-            <table class="flight-table">
+            <table class="flight-table" role="presentation">
                 <thead>
                     <tr>
                         <th>#</th>
@@ -77,24 +204,25 @@
                 </thead>
                 <tbody>
                     <tr th:each="flight, iter : ${outboundFlights}">
-                        <td th:text="${iter.count}">1</td>
-                        <td class="price-cell" th:text="'$' + ${flight.price()}">$199</td>
-                        <td th:text="${flight.airline()}">Delta</td>
-                        <td th:text="${flight.departureTime()}">9:00 AM</td>
-                        <td th:text="${flight.arrivalTime()}">11:30 AM</td>
+                        <td class="num-cell"  data-label="#"         th:text="${iter.count}">1</td>
+                        <td class="price-cell" data-label="Price"    th:text="'₫' + ${flight.price()}">₫1,999,000</td>
+                        <td data-label="Airline"                     th:text="${flight.airline()}">Vietjet</td>
+                        <td data-label="Departure"                   th:text="${flight.departureTime()}">5:35 PM</td>
+                        <td data-label="Arrival"                     th:text="${flight.arrivalTime()}">7:05 PM</td>
                     </tr>
                 </tbody>
             </table>
         </div>
 
-        <!-- Return flights -->
+        <!-- ── Return flights ────────────────────────────────── -->
         <div th:if="${tripType.name() == 'ROUND_TRIP' && !returnFlights.isEmpty()}">
             <div class="price-box">
-                <div class="label" th:text="'Return: ' + ${destination} + ' → ' + ${origin}">Return: LAX → JFK</div>
-                <div class="target-price" th:text="'Your target: $' + ${returnTargetPrice}">Your target: $200</div>
+                <div class="label"  th:text="'Return: ' + ${destination} + ' → ' + ${origin}">Return</div>
+                <div class="amount" th:text="'₫' + ${returnFlights[0].price()}">₫2,000,000</div>
+                <div class="target" th:text="'Your target: ₫' + ${returnTargetPrice}">Target: ₫2,500,000</div>
             </div>
 
-            <table class="flight-table">
+            <table class="flight-table" role="presentation">
                 <thead>
                     <tr>
                         <th>#</th>
@@ -106,26 +234,25 @@
                 </thead>
                 <tbody>
                     <tr th:each="flight, iter : ${returnFlights}">
-                        <td th:text="${iter.count}">1</td>
-                        <td class="price-cell" th:text="'$' + ${flight.price()}">$180</td>
-                        <td th:text="${flight.airline()}">Delta</td>
-                        <td th:text="${flight.departureTime()}">9:00 AM</td>
-                        <td th:text="${flight.arrivalTime()}">11:30 AM</td>
+                        <td class="num-cell"  data-label="#"         th:text="${iter.count}">1</td>
+                        <td class="price-cell" data-label="Price"    th:text="'₫' + ${flight.price()}">₫1,999,000</td>
+                        <td data-label="Airline"                     th:text="${flight.airline()}">Vietjet</td>
+                        <td data-label="Departure"                   th:text="${flight.departureTime()}">9:15 AM</td>
+                        <td data-label="Arrival"                     th:text="${flight.arrivalTime()}">10:45 AM</td>
                     </tr>
                 </tbody>
             </table>
         </div>
 
-        <!-- Round-trip total match -->
+        <!-- ── Round-trip total ──────────────────────────────── -->
         <div th:if="${roundTripMatched}">
-            <div class="price-box" style="background: #e3f2fd; border-left-color: #1565c0;">
-                <div class="label" style="color: #1565c0; font-weight: bold;">Round-Trip Total Match!</div>
-                <div style="font-size: 20px; font-weight: bold; color: #1565c0; margin: 8px 0;"
-                     th:text="'$' + ${roundTripPrice}">$400</div>
-                <div class="target-price" th:text="'Your round-trip target: $' + ${roundTripTargetPrice}">Your target: $500</div>
+            <div class="price-box" style="background:#e3f2fd; border-left-color:#1565c0;">
+                <div class="label"  style="color:#1565c0; font-weight:bold;">Round-Trip Total Match!</div>
+                <div class="amount" style="color:#1565c0;" th:text="'₫' + ${roundTripPrice}">₫2,841,000</div>
+                <div class="target" th:text="'Your round-trip target: ₫' + ${roundTripTargetPrice}">Target: ₫6,000,000</div>
             </div>
 
-            <table class="flight-table" th:if="${!roundTripFlights.isEmpty()}">
+            <table class="flight-table" role="presentation" th:if="${!roundTripFlights.isEmpty()}">
                 <thead>
                     <tr>
                         <th>#</th>
@@ -137,26 +264,28 @@
                 </thead>
                 <tbody>
                     <tr th:each="flight, iter : ${roundTripFlights}">
-                        <td th:text="${iter.count}">1</td>
-                        <td class="price-cell" th:text="'$' + ${flight.price()}">$400</td>
-                        <td th:text="${flight.airline()}">Google Flights</td>
-                        <td th:text="${flight.departureTime()}">9:00 AM</td>
-                        <td th:text="${flight.arrivalTime()}">11:30 AM</td>
+                        <td class="num-cell"  data-label="#"              th:text="${iter.count}">1</td>
+                        <td class="price-cell" data-label="Round-Trip"    th:text="'₫' + ${flight.price()}">₫2,841,000</td>
+                        <td data-label="Airline"                          th:text="${flight.airline()}">Vietjet</td>
+                        <td data-label="Departure"                        th:text="${flight.departureTime()}">5:35 PM</td>
+                        <td data-label="Arrival"                          th:text="${flight.arrivalTime()}">7:05 PM</td>
                     </tr>
                 </tbody>
             </table>
         </div>
 
-        <p>Prices change quickly — act fast before these deals disappear!</p>
+        <p style="font-size:14px; color:#555;">Prices change quickly — act fast before these deals disappear!</p>
 
         <div class="cta">
             <a href="https://www.google.com/travel/flights" target="_blank">Book Now on Google Flights</a>
         </div>
     </div>
+
     <div class="footer">
-        <p>You received this email because you set up a price alert at Plane Ticket Crawler.</p>
-        <p th:text="'Sent to: ' + ${userEmail}">Sent to: user@example.com</p>
+        <p style="margin:0 0 4px;">You received this because you set up a price alert at Plane Ticket Crawler.</p>
+        <p style="margin:0;" th:text="'Sent to: ' + ${userEmail}">Sent to: user@example.com</p>
     </div>
+
 </div>
 </body>
 </html>

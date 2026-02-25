@@ -722,6 +722,12 @@ Response `200 OK`:
       "origin": "SGN",
       "destination": "HAN",
       "matched": true,
+      "cheapestOutboundPrice": 750000,
+      "targetPrice": 800000,
+      "cheapestReturnPrice": null,
+      "returnTargetPrice": null,
+      "cheapestRoundTripPrice": null,
+      "roundTripTargetPrice": null,
       "matchedOutboundFlights": [
         {
           "price": 750000,
@@ -740,6 +746,12 @@ Response `200 OK`:
       "origin": "SGN",
       "destination": "DAD",
       "matched": false,
+      "cheapestOutboundPrice": 1200000,
+      "targetPrice": 800000,
+      "cheapestReturnPrice": null,
+      "returnTargetPrice": null,
+      "cheapestRoundTripPrice": null,
+      "roundTripTargetPrice": null,
       "matchedOutboundFlights": [],
       "matchedReturnFlights": [],
       "matchedRoundTripFlights": [],
@@ -749,14 +761,68 @@ Response `200 OK`:
 }
 ```
 
-If a scraper error occurs for a specific alert, `matched` is `false` and `error` contains the message:
+Round-trip alert example (per-leg mode):
 
 ```json
 {
   "alertId": 3,
   "origin": "SGN",
+  "destination": "HAN",
+  "matched": true,
+  "cheapestOutboundPrice": 780000,
+  "targetPrice": 800000,
+  "cheapestReturnPrice": 700000,
+  "returnTargetPrice": 750000,
+  "cheapestRoundTripPrice": null,
+  "roundTripTargetPrice": null,
+  "matchedOutboundFlights": [
+    { "price": 780000, "airline": "Vietnam Airlines", "duration": "2 hr 5 min", "origin": "SGN", "destination": "HAN" }
+  ],
+  "matchedReturnFlights": [
+    { "price": 700000, "airline": "VietJet Air", "duration": "2 hr 10 min", "origin": "HAN", "destination": "SGN" }
+  ],
+  "matchedRoundTripFlights": [],
+  "error": null
+}
+```
+
+Round-trip alert example (combined price mode):
+
+```json
+{
+  "alertId": 4,
+  "origin": "SGN",
+  "destination": "HAN",
+  "matched": true,
+  "cheapestOutboundPrice": 780000,
+  "targetPrice": 800000,
+  "cheapestReturnPrice": null,
+  "returnTargetPrice": null,
+  "cheapestRoundTripPrice": 1350000,
+  "roundTripTargetPrice": 1400000,
+  "matchedOutboundFlights": [],
+  "matchedReturnFlights": [],
+  "matchedRoundTripFlights": [
+    { "price": 1350000, "airline": "Vietnam Airlines", "duration": "2 hr 5 min", "origin": "SGN", "destination": "HAN" }
+  ],
+  "error": null
+}
+```
+
+If a scraper error occurs for a specific alert, `matched` is `false` and `error` contains the message:
+
+```json
+{
+  "alertId": 5,
+  "origin": "SGN",
   "destination": "SIN",
   "matched": false,
+  "cheapestOutboundPrice": null,
+  "targetPrice": 500000,
+  "cheapestReturnPrice": null,
+  "returnTargetPrice": null,
+  "cheapestRoundTripPrice": null,
+  "roundTripTargetPrice": null,
   "matchedOutboundFlights": [],
   "matchedReturnFlights": [],
   "matchedRoundTripFlights": [],

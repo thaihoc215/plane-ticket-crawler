@@ -14,3 +14,4 @@ public record FlightInfo(
         String departureTime,
         String arrivalTime
 ) {}
+
