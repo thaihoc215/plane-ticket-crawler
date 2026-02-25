@@ -1,25 +1,25 @@
 package com.planecrawler.service;
 
+import com.planecrawler.dto.response.AlertCheckResult;
 import com.planecrawler.model.FlightInfo;
 import com.planecrawler.model.PriceAlert;
 import com.planecrawler.repository.PriceAlertRepository;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Scheduled service that polls all active price alerts every hour and
- * triggers the scraper + email pipeline when a price match is found.
+ * Service that polls all active price alerts and triggers the scraper + email
+ * pipeline when a price match is found.
  *
- * <p>The {@code @Scheduled} method runs on a virtual thread
- * (via {@code spring.threads.virtual.enabled=true}), but alerts are
- * processed sequentially. Parallelism happens inside
+ * <p>Processing runs on a virtual thread (via {@code spring.threads.virtual.enabled=true})
+ * but alerts are processed sequentially. Parallelism happens inside
  * {@link FlightScraperService}, where each airline source is scraped
  * concurrently on its own virtual thread.
  */
@@ -34,20 +34,23 @@ public class AlertWatcherService {
     private final EmailService emailService;
 
     /**
-     * Runs every hour. Fetches all active alerts, scrapes current prices,
+     * Fetches all active alerts, scrapes current prices,
      * and notifies users when their target price is met or beaten.
+     * Triggered by {@link com.planecrawler.scheduler.AlertScheduler} on a schedule,
+     * and also callable directly for manual checks.
      */
-    @Scheduled(fixedRateString = "${alert.watcher.fixed-rate-ms:3600000}")
-    public void checkAlerts() {
+    public List<AlertCheckResult> checkAlerts() {
         List<PriceAlert> alerts = alertRepository.findByActiveTrue();
         log.info("Alert watcher triggered – checking {} active alert(s)", alerts.size());
 
+        List<AlertCheckResult> results = new ArrayList<>();
         for (PriceAlert alert : alerts) {
-            processAlert(alert);
+            results.add(processAlert(alert));
         }
+        return results;
     }
 
-    private void processAlert(PriceAlert alert) {
+    private AlertCheckResult processAlert(PriceAlert alert) {
         try {
             List<FlightInfo> outboundFlights = scraperService.scrape(
                     alert.getOrigin(), alert.getDestination(), alert.getDepartureDate());
@@ -97,7 +100,9 @@ public class AlertWatcherService {
                 }
             }
 
-            if (!matchedOutbound.isEmpty() || !matchedReturn.isEmpty() || roundTripMatched) {
+            boolean matched = !matchedOutbound.isEmpty() || !matchedReturn.isEmpty() || roundTripMatched;
+
+            if (matched) {
                 log.info("Price match! Alert id={} – {} outbound, {} return under target, roundTrip={} ({}<={}), route={}->{} email={}",
                         alert.getId(), matchedOutbound.size(), matchedReturn.size(),
                         roundTripMatched, roundTripPrice, alert.getRoundTripTargetPrice(),
@@ -111,9 +116,14 @@ public class AlertWatcherService {
                         roundTripPrice == null ? "-" : roundTripPrice,
                         alert.getRoundTripTargetPrice() == null ? "-" : alert.getRoundTripTargetPrice());
             }
+
+            return new AlertCheckResult(alert.getId(), alert.getOrigin(), alert.getDestination(),
+                    matched, matchedOutbound, matchedReturn, matchedRoundTrip, null);
         } catch (Exception e) {
             log.error("Failed to process alert id={} for route {}->{}: {}",
                     alert.getId(), alert.getOrigin(), alert.getDestination(), e.getMessage(), e);
+            return new AlertCheckResult(alert.getId(), alert.getOrigin(), alert.getDestination(),
+                    false, List.of(), List.of(), List.of(), e.getMessage());
         }
     }
 
