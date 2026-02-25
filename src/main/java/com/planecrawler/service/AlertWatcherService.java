@@ -52,7 +52,8 @@ public class AlertWatcherService {
             List<FlightInfo> outboundFlights = scraperService.scrape(
                     alert.getOrigin(), alert.getDestination(), alert.getDepartureDate());
             if (outboundFlights.isEmpty()) {
-                throw new IllegalStateException("No outbound flights found for route " + alert.getOrigin() + "->" + alert.getDestination());
+                throw new IllegalStateException(
+                        "No outbound flights found for route " + alert.getOrigin() + "->" + alert.getDestination());
             }
 
             List<FlightInfo> returnFlights = List.of();
