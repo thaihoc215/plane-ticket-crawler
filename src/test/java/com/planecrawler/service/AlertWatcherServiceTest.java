@@ -95,6 +95,17 @@ class AlertWatcherServiceTest {
     }
 
     @Test
+    void checkAlerts_whenScraperReturnsEmptyList_doesNotSendEmailOrSave() throws Exception {
+        when(alertRepository.findByActiveTrue()).thenReturn(List.of(alertUnderTarget));
+        when(scraperService.scrape(any(), any(), any())).thenReturn(List.of());
+
+        alertWatcherService.checkAlerts();
+
+        verify(emailService, never()).sendPriceAlert(any(), anyList(), anyList(), anyBoolean(), any(), anyList());
+        verify(alertRepository, never()).save(any());
+    }
+
+    @Test
     void checkAlerts_withNoActiveAlerts_doesNotScrape() throws Exception {
         when(alertRepository.findByActiveTrue()).thenReturn(List.of());
 

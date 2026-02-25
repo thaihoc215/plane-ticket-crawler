@@ -213,9 +213,246 @@ Each virtual thread runs an isolated Playwright → Chromium → BrowserContext 
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+## Playwright Scraping — Deep Dive
+
+This section explains exactly how Playwright drives a headless Chromium browser and how each tier of the extraction strategy works in `GoogleFlightsPage`.
+
+### Browser Lifecycle (per scrape call)
+
+Every call to `FlightScraperService.scrape()` spins up a fresh, isolated Playwright stack using try-with-resources so every resource is guaranteed to be closed — even on exception:
+
+```text
+Playwright.create()                        ← launches Playwright process
+  └─ playwright.chromium().launch()        ← spawns headless Chromium
+       └─ browser.newContext()             ← isolated cookie/session jar
+            └─ context.newPage()           ← a single browser tab
+                 │
+                 ├─ page.addInitScript()   ← runs JS before any page script
+                 │    └─ masks navigator.webdriver (bot-detection bypass)
+                 │
+                 ├─ navigate(url)          ← page.navigate() → HTTP GET
+                 │
+                 ├─ extractFlights()       ← tiered extraction (see below)
+                 │
+                 └─ [auto-close on scope exit]
+```
+
+**Context options set on every browser:**
+
+| Option | Value | Purpose |
+|---|---|---|
+| `userAgent` | random from 7 UA strings | Avoids bot fingerprinting |
+| `viewportSize` | 1280 × 800 | Mimics a real laptop screen |
+| `locale` | `en-US` | Forces English page content |
+| Chromium arg `--no-sandbox` | — | Required inside Docker/CI |
+| Chromium arg `--disable-blink-features=AutomationControlled` | — | Hides automation flag from `navigator` |
+
+---
+
+### Navigation & Wait Strategy (`GoogleFlightsPage.navigate`)
+
+```text
+1. Build URL:
+     https://www.google.com/travel/flights/search
+       ?q=Flights+from+{ORIGIN}+to+{DEST}
+       [+on+{YYYY-MM-DD}]            ← one-way
+       [+returning+{YYYY-MM-DD}]     ← round-trip
+
+2. page.navigate(url)
+     → Chromium performs a real HTTP GET + JS rendering
+
+3. dismissConsentBanner()
+     → Clicks "Accept all" / "I agree" if a GDPR cookie
+       banner appears (3-second timeout, silently ignored
+       if not present)
+
+4. Wait for flight cards:
+     page.waitForSelector("[data-gs]", timeout=20s)
+     └─ [data-gs] is Google Flights' stable flight card attribute
+     └─ Falls back to waitForLoadState(NETWORKIDLE) if not found
+```
+
+---
+
+### Tiered Extraction Strategy
+
+`extractFlights()` tries three tiers in order, returning immediately on the first success. This defends against Google's frequent CSS class changes.
+
+#### Tier 1 — JavaScript Multi-Card Extraction *(default path)*
+
+```text
+Method: extractMultipleViaJavaScript()
+How:    page.evaluate( JS snippet, limit )
+```
+
+A JavaScript snippet is injected into the live browser page via `page.evaluate()`. Playwright serialises the `limit` argument and deserialises the returned array back to Java `List<Map<String,Object>>`.
+
+**What the JS does, step by step:**
+
+```javascript
+// 1. Find ALL flight result cards
+const cards = document.querySelectorAll('[data-gs]');
+
+// 2. For each card (up to `limit`):
+for (const card of cards) {
+
+  // 3. Read the entire visible text of the card
+  const text = card.innerText;
+
+  // 4. Find a price — tries $ first, then VND/đ/₫
+  const dollarMatch = text.match(/\$(\d[\d,]*)/);
+  const dongMatch   = text.match(/[₫đ](\d[\d,]*)/)
+                   || text.match(/(\d{1,3}(?:,\d{3})+)\s*(?:VND|đ)/i)
+                   || text.match(/VND\s*(\d[\d,]*)/);
+  const priceMatch  = dollarMatch || dongMatch;  // $ takes priority
+  if (!priceMatch) continue;                     // skip card if no price
+
+  // 5. Extract flight duration ("2 hr 30 min")
+  const durationMatch = text.match(/(\d+\s*hr?\s*\d*\s*min?)/);
+
+  // 6. Extract departure / arrival times ("6:00 AM – 8:30 AM")
+  const timeMatch = text.match(
+    /(\d{1,2}:\d{2}\s*(?:AM|PM)?)\s*[–\-]\s*(\d{1,2}:\d{2}\s*(?:AM|PM)?)/
+  );
+
+  // 7. Guess airline name — first line that is NOT a number,
+  //    price symbol, duration unit, airport code, or too long
+  const lines   = text.split('\n').filter(l => l.trim());
+  const airline = lines.find(l =>
+    !l.match(/^\d/)           &&   // not starting with a digit
+    !l.match(/^[\$₫đ]/)      &&   // not a price line
+    !l.match(/hr|min|stop/i) &&   // not duration/stop info
+    !l.match(/^[A-Z]{3}\s/)  &&   // not an IATA airport code
+    l.length > 2 && l.length < 40 // reasonable name length
+  ) || 'Unknown';
+
+  flights.push({ price, duration, airline, departureTime, arrivalTime });
+}
+return flights;
+```
+
+**Java side:** The returned list is cast to `List<Map<String,Object>>`, each map entry is converted to a `FlightInfo` record with `BigDecimal` price.
+
+---
+
+#### Tier 2 — Aria-Label DOM Selectors *(first fallback)*
+
+```text
+Method: extractViaAriaLabels()
+How:    page.locator(CSS selector with aria-label attribute filters)
+```
+
+Used when Tier 1 JS returns an empty list (e.g. DOM structure changed but aria-labels are still present).
+
+```text
+Price:    page.locator("[data-gs] [aria-label*='$']")
+       or page.locator("[data-gs] [aria-label*='USD']")
+       or page.locator("[data-gs] [aria-label*='dong']")
+       or page.locator("[data-gs] [aria-label*='VND']")
+       → .first().textContent() → PriceParser.parse()
+
+Airline:  page.locator("[data-gs]")
+          → .first().getAttribute("aria-label")
+          → regex: "(?:with|by|on) ([A-Za-z ...]+)"
+
+Duration: page.locator("[data-gs] [aria-label*='Total duration']")
+       or page.locator("[data-gs] [aria-label*='hr']")
+       → .first().textContent()
+```
+
+**Why aria-labels are stable:** Accessibility attributes are part of Google's public contract for screen readers — they change far less often than CSS class names.
+
+---
+
+#### Tier 3 — Full-Page Text Regex *(last resort)*
+
+```text
+Method: extractViaFullPageText()
+How:    page.evaluate( JS → document.body.innerText ) + server-side regex
+```
+
+When both previous tiers fail (e.g. heavy bot detection, blocked page), the entire page's visible text is extracted as a single string and scanned for any price and duration pattern.
+
+```javascript
+const text = document.body.innerText;
+// same dollar / dong regex as Tier 1, but on the whole page
+const priceMatch    = dollarMatch || dongMatch;
+const durationMatch = text.match(/(\d+\s*hr?\s*\d*\s*min?)/);
+return { price: priceMatch[1].replace(/,/g, ''), duration };
+```
+
+Returns only 1 `FlightInfo` with `airline = "Unknown"` since there is no card-level isolation at this point. If `price` is still `null`, an `IllegalStateException` is thrown and `@Retryable` will schedule a retry.
+
+---
+
+### Tier Decision Flowchart
+
+```text
+navigate(url)
+      │
+      ▼
+extractFlights(origin, destination, limit)
+      │
+      ▼
+ Tier 1: extractMultipleViaJavaScript()
+      │
+      ├── results not empty? ──YES──► return List<FlightInfo>
+      │
+      └── empty or exception
+            │
+            ▼
+       Tier 2: extractViaAriaLabels()
+            │
+            ├── success? ──YES──► return List.of(FlightInfo)
+            │
+            └── exception
+                  │
+                  ▼
+             Tier 3: extractViaFullPageText()
+                  │
+                  ├── success? ──YES──► return List.of(FlightInfo)
+                  │
+                  └── exception
+                        │
+                        ▼
+                  return List.of()   ← @Retryable triggers retry
+```
+
+---
+
+### PriceParser — Currency Normalisation
+
+`PriceParser.parse(String raw)` is called after every tier to convert whatever string was extracted into a `BigDecimal`:
+
+```text
+Input examples:   "$1,234"   "1.234.000 VND"   "₫1,200,000"   "1200000"
+Steps:
+  1. Strip all non-digit, non-dot, non-comma chars
+  2. Remove thousands separators (commas)
+  3. new BigDecimal(cleaned)
+```
+
+All downstream comparisons (`price ≤ targetPrice`) use `BigDecimal.compareTo()` to avoid floating-point precision bugs.
+
+---
+
 ## REST API
 
+Base URL: `http://localhost:8080`
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/alerts` | Create a new price alert |
+| `GET` | `/api/alerts?status=` | List alerts filtered by status |
+| `PATCH` | `/api/alerts/{id}/deactivate` | Deactivate an alert |
+| `POST` | `/api/alerts/check` | Manually trigger a price check for all active alerts |
+| `DELETE` | `/api/alerts/{id}` | Delete an alert permanently |
+
+---
+
 ### POST /api/alerts — Create Alert
+
+#### One-Way alert
 
 ```bash
 curl -X POST http://localhost:8080/api/alerts \
@@ -223,11 +460,9 @@ curl -X POST http://localhost:8080/api/alerts \
   -d '{
     "origin": "SGN",
     "destination": "HAN",
-    "tripType": "ROUND_TRIP",
+    "tripType": "ONE_WAY",
     "departureDate": "2026-04-01",
-    "returnDate": "2026-04-10",
-    "targetPrice": 1500000,
-    "returnTargetPrice": 1500000,
+    "targetPrice": 800000,
     "userEmail": "user@example.com"
   }'
 ```
@@ -240,31 +475,390 @@ Response `201 Created`:
   "alertId": 1,
   "origin": "SGN",
   "destination": "HAN",
-  "tripType": "ROUND_TRIP",
+  "tripType": "ONE_WAY",
   "departureDate": "2026-04-01",
-  "returnDate": "2026-04-10",
-  "targetPrice": 1500000,
-  "returnTargetPrice": 1500000,
+  "returnDate": null,
+  "targetPrice": 800000,
+  "returnTargetPrice": null,
+  "roundTripTargetPrice": null,
   "userEmail": "user@example.com"
 }
 ```
 
-### GET /api/alerts?status={active|inactive|all} — List Alerts
+#### Round-trip alert — monitor each leg separately
+
+Track outbound and return legs independently. An email fires when **either** leg hits its target.
 
 ```bash
-curl http://localhost:8080/api/alerts?status=active
+curl -X POST http://localhost:8080/api/alerts \
+  -H "Content-Type: application/json" \
+  -d '{
+    "origin": "SGN",
+    "destination": "HAN",
+    "tripType": "ROUND_TRIP",
+    "departureDate": "2026-04-01",
+    "returnDate": "2026-04-10",
+    "targetPrice": 800000,
+    "returnTargetPrice": 750000,
+    "userEmail": "user@example.com"
+  }'
 ```
 
+Response `201 Created`:
+
+```json
+{
+  "message": "Alert created successfully",
+  "alertId": 2,
+  "origin": "SGN",
+  "destination": "HAN",
+  "tripType": "ROUND_TRIP",
+  "departureDate": "2026-04-01",
+  "returnDate": "2026-04-10",
+  "targetPrice": 800000,
+  "returnTargetPrice": 750000,
+  "roundTripTargetPrice": null,
+  "userEmail": "user@example.com"
+}
+```
+
+#### Round-trip alert — monitor combined price
+
+Track the total round-trip price. An email fires when the combined round-trip fare hits the target.
+
+```bash
+curl -X POST http://localhost:8080/api/alerts \
+  -H "Content-Type: application/json" \
+  -d '{
+    "origin": "SGN",
+    "destination": "HAN",
+    "tripType": "ROUND_TRIP",
+    "departureDate": "2026-04-01",
+    "returnDate": "2026-04-10",
+    "targetPrice": 800000,
+    "roundTripTargetPrice": 1400000,
+    "userEmail": "user@example.com"
+  }'
+```
+
+Response `201 Created`:
+
+```json
+{
+  "message": "Alert created successfully",
+  "alertId": 3,
+  "origin": "SGN",
+  "destination": "HAN",
+  "tripType": "ROUND_TRIP",
+  "departureDate": "2026-04-01",
+  "returnDate": "2026-04-10",
+  "targetPrice": 800000,
+  "returnTargetPrice": null,
+  "roundTripTargetPrice": 1400000,
+  "userEmail": "user@example.com"
+}
+```
+
+#### Validation errors `400 Bad Request`
+
+```bash
+# Missing required fields
+curl -X POST http://localhost:8080/api/alerts \
+  -H "Content-Type: application/json" \
+  -d '{
+    "origin": "SGN",
+    "tripType": "ROUND_TRIP",
+    "departureDate": "2026-04-01",
+    "targetPrice": 800000,
+    "userEmail": "user@example.com"
+  }'
+```
+
+```json
+{
+  "message": "Validation failed",
+  "errors": {
+    "destination": "must not be blank"
+  }
+}
+```
+
+```bash
+# ROUND_TRIP without returnDate
+curl -X POST http://localhost:8080/api/alerts \
+  -H "Content-Type: application/json" \
+  -d '{
+    "origin": "SGN",
+    "destination": "HAN",
+    "tripType": "ROUND_TRIP",
+    "departureDate": "2026-04-01",
+    "targetPrice": 800000,
+    "userEmail": "user@example.com"
+  }'
+```
+
+```json
+{
+  "message": "returnDate is required for ROUND_TRIP"
+}
+```
+
+---
+
+### GET /api/alerts — List Alerts
+
+`status` query param accepts `active` (default), `inactive`, or `all`.
+
+```bash
+# Active alerts (default)
+curl http://localhost:8080/api/alerts
+
+# Active alerts (explicit)
+curl http://localhost:8080/api/alerts?status=active
+
+# Inactive / deactivated alerts
+curl http://localhost:8080/api/alerts?status=inactive
+
+# All alerts regardless of status
+curl http://localhost:8080/api/alerts?status=all
+```
+
+Response `200 OK`:
+
+```json
+[
+  {
+    "alertId": 1,
+    "origin": "SGN",
+    "destination": "HAN",
+    "tripType": "ONE_WAY",
+    "departureDate": "2026-04-01",
+    "returnDate": null,
+    "targetPrice": 800000,
+    "returnTargetPrice": null,
+    "roundTripTargetPrice": null,
+    "userEmail": "user@example.com",
+    "active": true
+  },
+  {
+    "alertId": 2,
+    "origin": "SGN",
+    "destination": "HAN",
+    "tripType": "ROUND_TRIP",
+    "departureDate": "2026-04-01",
+    "returnDate": "2026-04-10",
+    "targetPrice": 800000,
+    "returnTargetPrice": 750000,
+    "roundTripTargetPrice": null,
+    "userEmail": "user@example.com",
+    "active": true
+  }
+]
+```
+
+Invalid status value `400 Bad Request`:
+
+```bash
+curl http://localhost:8080/api/alerts?status=unknown
+```
+
+```json
+{
+  "message": "Invalid status filter: unknown. Valid values are: active, inactive, all"
+}
+```
+
+---
+
 ### PATCH /api/alerts/{id}/deactivate — Deactivate Alert
+
+Stops the alert from being checked in future polling cycles. The alert record is **kept** in the database.
 
 ```bash
 curl -X PATCH http://localhost:8080/api/alerts/1/deactivate
 ```
 
+Response `200 OK`:
+
+```json
+{
+  "message": "Alert deactivated",
+  "alertId": 1
+}
+```
+
+Alert not found `404 Not Found`:
+
+```bash
+curl -X PATCH http://localhost:8080/api/alerts/999/deactivate
+```
+
+```json
+{
+  "message": "Alert not found with id: 999"
+}
+```
+
+---
+
+### POST /api/alerts/check — Manual Price Check
+
+Immediately runs the scheduled price-check pipeline against all currently active alerts — useful for testing without waiting for the next hourly tick.
+
+```bash
+curl -X POST http://localhost:8080/api/alerts/check
+```
+
+Response `200 OK`:
+
+```json
+{
+  "message": "Manual alert check completed",
+  "alertsChecked": 2,
+  "alertsMatched": 1,
+  "results": [
+    {
+      "alertId": 1,
+      "origin": "SGN",
+      "destination": "HAN",
+      "matched": true,
+      "cheapestOutboundPrice": 750000,
+      "targetPrice": 800000,
+      "cheapestReturnPrice": null,
+      "returnTargetPrice": null,
+      "cheapestRoundTripPrice": null,
+      "roundTripTargetPrice": null,
+      "matchedOutboundFlights": [
+        {
+          "price": 750000,
+          "airline": "VietJet Air",
+          "duration": "2 hr 5 min",
+          "origin": "SGN",
+          "destination": "HAN"
+        }
+      ],
+      "matchedReturnFlights": [],
+      "matchedRoundTripFlights": [],
+      "error": null
+    },
+    {
+      "alertId": 2,
+      "origin": "SGN",
+      "destination": "DAD",
+      "matched": false,
+      "cheapestOutboundPrice": 1200000,
+      "targetPrice": 800000,
+      "cheapestReturnPrice": null,
+      "returnTargetPrice": null,
+      "cheapestRoundTripPrice": null,
+      "roundTripTargetPrice": null,
+      "matchedOutboundFlights": [],
+      "matchedReturnFlights": [],
+      "matchedRoundTripFlights": [],
+      "error": null
+    }
+  ]
+}
+```
+
+Round-trip alert example (per-leg mode):
+
+```json
+{
+  "alertId": 3,
+  "origin": "SGN",
+  "destination": "HAN",
+  "matched": true,
+  "cheapestOutboundPrice": 780000,
+  "targetPrice": 800000,
+  "cheapestReturnPrice": 700000,
+  "returnTargetPrice": 750000,
+  "cheapestRoundTripPrice": null,
+  "roundTripTargetPrice": null,
+  "matchedOutboundFlights": [
+    { "price": 780000, "airline": "Vietnam Airlines", "duration": "2 hr 5 min", "origin": "SGN", "destination": "HAN" }
+  ],
+  "matchedReturnFlights": [
+    { "price": 700000, "airline": "VietJet Air", "duration": "2 hr 10 min", "origin": "HAN", "destination": "SGN" }
+  ],
+  "matchedRoundTripFlights": [],
+  "error": null
+}
+```
+
+Round-trip alert example (combined price mode):
+
+```json
+{
+  "alertId": 4,
+  "origin": "SGN",
+  "destination": "HAN",
+  "matched": true,
+  "cheapestOutboundPrice": 780000,
+  "targetPrice": 800000,
+  "cheapestReturnPrice": null,
+  "returnTargetPrice": null,
+  "cheapestRoundTripPrice": 1350000,
+  "roundTripTargetPrice": 1400000,
+  "matchedOutboundFlights": [],
+  "matchedReturnFlights": [],
+  "matchedRoundTripFlights": [
+    { "price": 1350000, "airline": "Vietnam Airlines", "duration": "2 hr 5 min", "origin": "SGN", "destination": "HAN" }
+  ],
+  "error": null
+}
+```
+
+If a scraper error occurs for a specific alert, `matched` is `false` and `error` contains the message:
+
+```json
+{
+  "alertId": 5,
+  "origin": "SGN",
+  "destination": "SIN",
+  "matched": false,
+  "cheapestOutboundPrice": null,
+  "targetPrice": 500000,
+  "cheapestReturnPrice": null,
+  "returnTargetPrice": null,
+  "cheapestRoundTripPrice": null,
+  "roundTripTargetPrice": null,
+  "matchedOutboundFlights": [],
+  "matchedReturnFlights": [],
+  "matchedRoundTripFlights": [],
+  "error": "All flight sources failed for route SGN->SIN"
+}
+```
+
+---
+
 ### DELETE /api/alerts/{id} — Delete Alert
+
+Permanently removes the alert record from the database.
 
 ```bash
 curl -X DELETE http://localhost:8080/api/alerts/1
+```
+
+Response `200 OK`:
+
+```json
+{
+  "message": "Alert deleted",
+  "alertId": 1
+}
+```
+
+Alert not found `404 Not Found`:
+
+```bash
+curl -X DELETE http://localhost:8080/api/alerts/999
+```
+
+```json
+{
+  "message": "Alert not found with id: 999"
+}
 ```
 
 ## Database Schema

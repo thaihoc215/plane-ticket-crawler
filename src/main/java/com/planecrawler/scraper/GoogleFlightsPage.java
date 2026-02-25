@@ -7,11 +7,12 @@ import com.planecrawler.model.FlightInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.ByteArrayOutputStream;
 import java.math.BigDecimal;
-import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
@@ -29,8 +30,14 @@ public class GoogleFlightsPage {
 
     private static final Logger log = LoggerFactory.getLogger(GoogleFlightsPage.class);
 
-    private static final String BASE_URL =
-            "https://www.google.com/travel/flights/search?q=Flights+from+%s+to+%s";
+    private static final String SEARCH_URL =
+            "https://www.google.com/travel/flights/search";
+
+    private static final String FALLBACK_URL =
+            SEARCH_URL + "?q=Flights+from+%s+to+%s";
+
+    /** Flight search options for round-trip queries. */
+    private static final String TFU_ROUND_TRIP = "EgoIAhABGAAgAigL";
 
     private static final String FLIGHT_CARD_SELECTOR = "[data-gs]";
 
@@ -39,8 +46,6 @@ public class GoogleFlightsPage {
             + " [data-gs] [aria-label*='dong'], [data-gs] [aria-label*='VND']";
     private static final String DURATION_ARIA_SELECTOR =
             "[data-gs] [aria-label*='Total duration'], [data-gs] [aria-label*='hr'], [data-gs] [aria-label*='min']";
-
-    private static final Pattern PRICE_PATTERN = Pattern.compile("[\\d,]+");
 
     private final Page page;
 
@@ -57,11 +62,17 @@ public class GoogleFlightsPage {
     }
 
     public void navigate(String origin, String destination, LocalDate departDate, LocalDate returnDate) {
-        String datePart = departDate == null ? ""
-                : "+" + URLEncoder.encode("on " + departDate, StandardCharsets.UTF_8);
-        String returnPart = returnDate == null ? ""
-                : "+" + URLEncoder.encode("returning " + returnDate, StandardCharsets.UTF_8);
-        String url = String.format(BASE_URL, origin, destination) + datePart + returnPart;
+        String url;
+        if (departDate != null && returnDate != null) {
+            // Round-trip: use tfs protobuf encoding (matches Google Flights internal format)
+            String tfs = buildTfsParam(origin, destination, departDate, returnDate);
+            url = SEARCH_URL + "?tfs=" + tfs + "&tfu=" + TFU_ROUND_TRIP;
+        } else if (departDate != null) {
+            // One-way with date: use natural-language q= format
+            url = String.format(FALLBACK_URL, origin, destination) + "+on+" + departDate;
+        } else {
+            url = String.format(FALLBACK_URL, origin, destination);
+        }
         log.info("Navigating to Google Flights{}: {}", returnDate != null ? " (round-trip)" : "", url);
         page.navigate(url);
 
@@ -120,7 +131,7 @@ public class GoogleFlightsPage {
         }
 
         String rawPrice = priceLocator.first().textContent();
-        BigDecimal price = parsePrice(rawPrice);
+        BigDecimal price = PriceParser.parse(rawPrice);
 
         String airline = "Unknown";
         Locator cards = page.locator(FLIGHT_CARD_SELECTOR);
@@ -142,34 +153,39 @@ public class GoogleFlightsPage {
 
     @SuppressWarnings("unchecked")
     private List<FlightInfo> extractMultipleViaJavaScript(String origin, String destination, int limit) {
+        // Query flight cards directly via accessibility attributes.
+        // Each flight card is a [role="link"] element whose aria-label contains "Total duration",
+        // and it encodes every field we need in one string:
+        //   "From 2841000 Vietnamese dong round trip total. Nonstop flight with Vietjet.
+        //    Leaves ... at 5:35 PM on ... and arrives at ... at 7:05 PM on ...
+        //    Total duration 1 hr 30 min. Select flight"
         Object result = page.evaluate(
                 "(limit) => {\n" +
-                "  const cards = document.querySelectorAll('[data-gs]');\n" +
+                "  const cards = document.querySelectorAll('[role=\"link\"][aria-label*=\"Total duration\"]');\n" +
                 "  if (!cards.length) return [];\n" +
                 "  const flights = [];\n" +
                 "  for (const card of cards) {\n" +
                 "    if (flights.length >= limit) break;\n" +
-                "    const text = card.innerText;\n" +
-                "    const dollarMatch = text.match(/\\$(\\d[\\d,]*)/);\n" +
-                "    const dongMatch = text.match(/[₫đ](\\d[\\d,]*)/) || text.match(/(\\d{1,3}(?:,\\d{3})+)\\s*(?:VND|đ)/i) || text.match(/VND\\s*(\\d[\\d,]*)/);\n" +
-                "    const priceMatch = dollarMatch || dongMatch;\n" +
+                "    const label = card.getAttribute('aria-label') || '';\n" +
+                "    // Price: 'From 2841000 Vietnamese dong' or 'From $250'\n" +
+                "    const priceMatch = label.match(/From ([\\d,]+)\\s*(?:Vietnamese dong|US dollar|dollar)/i)\n" +
+                "                    || label.match(/From \\$([\\d,.]+)/);\n" +
                 "    if (!priceMatch) continue;\n" +
-                "    const durationMatch = text.match(/(\\d+\\s*hr?\\s*\\d*\\s*min?)/);\n" +
-                "    const timeMatch = text.match(/(\\d{1,2}:\\d{2}\\s*(?:AM|PM)?)\\s*[–\\-]\\s*(\\d{1,2}:\\d{2}\\s*(?:AM|PM)?)/);\n" +
-                "    const lines = text.split('\\n').filter(l => l.trim());\n" +
-                "    const airline = lines.find(l =>\n" +
-                "      !l.match(/^\\d/) && !l.match(/^[\\$₫đ]/) &&\n" +
-                "      !l.match(/hr|min|stop|nonstop/i) &&\n" +
-                "      !l.match(/^[A-Z]{3}\\s/) &&\n" +
-                "      l.length > 2 && l.length < 40\n" +
-                "    ) || 'Unknown';\n" +
-                "    flights.push({\n" +
-                "      price: priceMatch[1].replace(/,/g, ''),\n" +
-                "      duration: durationMatch ? durationMatch[0] : 'N/A',\n" +
-                "      airline: airline.trim(),\n" +
-                "      departureTime: timeMatch ? timeMatch[1].trim() : 'N/A',\n" +
-                "      arrivalTime: timeMatch ? timeMatch[2].trim() : 'N/A'\n" +
-                "    });\n" +
+                "    const price = priceMatch[1].replace(/,/g, '');\n" +
+                "    // Airline: 'flight with <Airline>.'\n" +
+                "    const airlineMatch = label.match(/flight with ([^.]+)\\./);\n" +
+                "    const airline = airlineMatch ? airlineMatch[1].trim() : 'Unknown';\n" +
+                "    // Times: all HH:MM AM/PM occurrences (first = departure, second = arrival)\n" +
+                "    const timeRe = /(\\d{1,2}:\\d{2}\\s*(?:AM|PM))/gi;\n" +
+                "    const times = [];\n" +
+                "    let m;\n" +
+                "    while ((m = timeRe.exec(label)) !== null) times.push(m[1].trim());\n" +
+                "    const departureTime = times[0] || 'N/A';\n" +
+                "    const arrivalTime = times[1] || 'N/A';\n" +
+                "    // Duration: 'Total duration X hr Y min'\n" +
+                "    const durationMatch = label.match(/Total duration ([^.]+)/);\n" +
+                "    const duration = durationMatch ? durationMatch[1].trim() : 'N/A';\n" +
+                "    flights.push({ price, airline, departureTime, arrivalTime, duration });\n" +
                 "  }\n" +
                 "  return flights;\n" +
                 "}",
@@ -185,6 +201,7 @@ public class GoogleFlightsPage {
         for (Map<String, Object> map : items) {
             Object priceVal = map.get("price");
             if (priceVal == null) continue;
+            log.info("FLIGHT CARD LABEL: {}", map.get("_label"));
             BigDecimal price = new BigDecimal(priceVal.toString());
             String airline = map.getOrDefault("airline", "Unknown").toString();
             String duration = map.getOrDefault("duration", "N/A").toString();
@@ -237,8 +254,113 @@ public class GoogleFlightsPage {
                 log.debug("Dismissed cookie consent banner");
             }
         } catch (Exception ignored) {
+            log.warn("Failed to load cookie consent banner");
         }
     }
+
+    // ---- Protobuf-based tfs URL builder (matches Google Flights internal format) ----
+
+    /**
+     * Builds the {@code tfs} query parameter that Google Flights uses for flight searches.
+     * The parameter is a URL-safe Base64-encoded Protocol Buffer containing flight segments.
+     */
+    static String buildTfsParam(String origin, String destination,
+                                LocalDate departDate, LocalDate returnDate) {
+        ByteArrayOutputStream buf = new ByteArrayOutputStream();
+        writeTag(buf, 1, 0);
+        writeVarint(buf, 28);
+        writeTag(buf, 2, 0);
+        writeVarint(buf, returnDate != null ? 2 : 1);
+
+        writeSegment(buf, departDate, origin, destination);
+        if (returnDate != null) {
+            writeSegment(buf, returnDate, destination, origin);
+        }
+
+        // adults = 1
+        writeTag(buf, 8, 0);
+        writeVarint(buf, 1);
+        // cabin class: 1 = economy
+        writeTag(buf, 9, 0);
+        writeVarint(buf, 1);
+        // stops: any
+        writeTag(buf, 14, 0);
+        writeVarint(buf, 1);
+        // price filter: no limit (uint64 max)
+        writeTag(buf, 16, 2);
+        byte[] priceFilter = buildNoMaxPrice();
+        writeVarint(buf, priceFilter.length);
+        writeRawBytes(buf, priceFilter);
+        // sort: best flights
+        writeTag(buf, 19, 0);
+        writeVarint(buf, 1);
+
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(buf.toByteArray());
+    }
+
+    private static void writeSegment(ByteArrayOutputStream outer, LocalDate date,
+                                     String origin, String destination) {
+        ByteArrayOutputStream seg = new ByteArrayOutputStream();
+        byte[] dateBytes = date.toString().getBytes(StandardCharsets.UTF_8);
+        writeTag(seg, 2, 2);
+        writeVarint(seg, dateBytes.length);
+        writeRawBytes(seg, dateBytes);
+
+        byte[] originBytes = buildAirport(origin);
+        writeTag(seg, 13, 2);
+        writeVarint(seg, originBytes.length);
+        writeRawBytes(seg, originBytes);
+
+        byte[] destBytes = buildAirport(destination);
+        writeTag(seg, 14, 2);
+        writeVarint(seg, destBytes.length);
+        writeRawBytes(seg, destBytes);
+
+        byte[] segBytes = seg.toByteArray();
+        writeTag(outer, 3, 2);
+        writeVarint(outer, segBytes.length);
+        writeRawBytes(outer, segBytes);
+    }
+
+    private static byte[] buildAirport(String code) {
+        ByteArrayOutputStream ap = new ByteArrayOutputStream();
+        writeTag(ap, 1, 0);
+        writeVarint(ap, 1);
+        writeTag(ap, 2, 2);
+        byte[] codeBytes = code.getBytes(StandardCharsets.UTF_8);
+        writeVarint(ap, codeBytes.length);
+        writeRawBytes(ap, codeBytes);
+        return ap.toByteArray();
+    }
+
+    private static byte[] buildNoMaxPrice() {
+        ByteArrayOutputStream f = new ByteArrayOutputStream();
+        writeTag(f, 1, 0);
+        // uint64 max encoded as varint (0xFFFFFFFFFFFFFFFF)
+        f.write(new byte[]{
+                (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
+                (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, 0x01
+        }, 0, 10);
+        return f.toByteArray();
+    }
+
+    private static void writeTag(ByteArrayOutputStream buf, int fieldNumber, int wireType) {
+        writeVarint(buf, (fieldNumber << 3) | wireType);
+    }
+
+    private static void writeVarint(ByteArrayOutputStream buf, int value) {
+        while ((value & ~0x7F) != 0) {
+            buf.write((value & 0x7F) | 0x80);
+            value >>>= 7;
+        }
+        buf.write(value);
+    }
+
+    private static void writeRawBytes(ByteArrayOutputStream buf, byte[] data) {
+        buf.write(data, 0, data.length);
+    }
+
+    // ---- End tfs URL builder ----
 
     private static String parseAirlineFromLabel(String label) {
         Pattern p = Pattern.compile("(?:with|by|on)\\s+([A-Za-z][A-Za-z .&'-]+?)(?:\\.|,|\\s+Total|\\s+Duration|$)");
@@ -253,12 +375,4 @@ public class GoogleFlightsPage {
         return "Unknown";
     }
 
-    private static BigDecimal parsePrice(String rawPrice) {
-        String cleaned = rawPrice.replaceAll(",", "");
-        Matcher m = PRICE_PATTERN.matcher(cleaned);
-        if (m.find()) {
-            return new BigDecimal(m.group());
-        }
-        throw new IllegalStateException("Unable to parse price from: " + rawPrice);
-    }
 }

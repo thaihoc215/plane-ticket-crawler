@@ -1,13 +1,16 @@
 package com.planecrawler.controller;
 
 import com.planecrawler.dto.request.CreateAlertRequest;
+import com.planecrawler.dto.response.AlertCheckResult;
 import com.planecrawler.dto.response.AlertResponse;
 import com.planecrawler.dto.response.ApiMessageResponse;
+import com.planecrawler.dto.response.CheckAlertsResponse;
 import com.planecrawler.dto.response.CreateAlertResponse;
 import com.planecrawler.exception.AlertNotFoundException;
 import com.planecrawler.exception.BadRequestException;
 import com.planecrawler.model.PriceAlert;
 import com.planecrawler.repository.PriceAlertRepository;
+import com.planecrawler.service.AlertWatcherService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -26,6 +29,7 @@ public class AlertController {
     private static final Logger log = LoggerFactory.getLogger(AlertController.class);
 
     private final PriceAlertRepository alertRepository;
+    private final AlertWatcherService alertWatcherService;
 
     /**
      * Creates a new price alert. The user supplies their travel details,
@@ -71,6 +75,14 @@ public class AlertController {
         alert.setActive(false);
         alertRepository.save(alert);
         return ResponseEntity.ok(new ApiMessageResponse("Alert deactivated", id));
+    }
+
+    @PostMapping("/check")
+    public ResponseEntity<CheckAlertsResponse> manualCheck() {
+        List<AlertCheckResult> results = alertWatcherService.checkAlerts();
+        int matched = (int) results.stream().filter(AlertCheckResult::matched).count();
+        return ResponseEntity.ok(new CheckAlertsResponse(
+                "Manual alert check completed", results.size(), matched, results));
     }
 
     @DeleteMapping("/{id}")

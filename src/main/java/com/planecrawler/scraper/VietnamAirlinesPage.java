@@ -11,8 +11,6 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * Page Object Model for Vietnam Airlines booking flow.
@@ -22,8 +20,6 @@ public class VietnamAirlinesPage {
     private static final Logger log = LoggerFactory.getLogger(VietnamAirlinesPage.class);
 
     private static final String BOOKING_URL = "https://www.vietnamairlines.com/vn/en/book-a-trip/booking";
-    private static final Pattern PRICE_PATTERN = Pattern.compile("[\\d,]+");
-
     private final Page page;
 
     public VietnamAirlinesPage(Page page) {
@@ -82,7 +78,7 @@ public class VietnamAirlinesPage {
         }
 
         String rawPrice = priceLocator.first().textContent();
-        BigDecimal price = parsePrice(rawPrice);
+        BigDecimal price = PriceParser.parse(rawPrice);
         return new FlightInfo(price, "Vietnam Airlines", "N/A", origin, destination, "N/A", "N/A");
     }
 
@@ -115,12 +111,4 @@ public class VietnamAirlinesPage {
         return new FlightInfo(price, "Vietnam Airlines", "N/A", origin, destination, "N/A", "N/A");
     }
 
-    private static BigDecimal parsePrice(String rawPrice) {
-        String cleaned = rawPrice.replaceAll(",", "");
-        Matcher m = PRICE_PATTERN.matcher(cleaned);
-        if (m.find()) {
-            return new BigDecimal(m.group());
-        }
-        throw new IllegalStateException("Unable to parse price from: " + rawPrice);
-    }
 }
